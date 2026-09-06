@@ -1,0 +1,23 @@
+services:
+  invoice-service:
+    build:
+      context: .
+    image: invoice-reimbursement-service:1.0.0
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      WEB_CONCURRENCY: "2"
+      MAX_CONCURRENT_JOBS: "10"
+      MAX_QUEUED_JOBS: "50"
+      QUEUE_TIMEOUT_SECONDS: "30"
+      MAX_UPLOAD_MB: "50"
+      MAX_UNCOMPRESSED_MB: "200"
+      MAX_PDF_COUNT: "100"
+      MAX_COMPRESSION_RATIO: "200"
+      SERVICE_API_KEY: "${SERVICE_API_KEY:-}"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
