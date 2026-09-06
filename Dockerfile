@@ -20,6 +20,7 @@ COPY requirements.txt ./
 RUN python -m pip install --upgrade pip && python -m pip install -r requirements.txt
 
 COPY archive_reader.py excel_writer.py invoice_reader.py processing.py validator.py server.py ./
+COPY web ./web
 
 USER invoice
 

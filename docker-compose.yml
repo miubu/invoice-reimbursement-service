@@ -2,7 +2,7 @@ services:
   invoice-service:
     build:
       context: .
-    image: invoice-reimbursement-service:1.0.0
+    image: invoice-reimbursement-service:2.0.0
     restart: unless-stopped
     ports:
       - "8000:8000"

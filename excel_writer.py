@@ -85,6 +85,8 @@ def build_workbook(
             cell.border = Border(bottom=thin_gray)
 
     for row_number in range(2, len(records) + 2):
+        for column in (1, 2, 5, 8, 9):
+            sheet.cell(row_number, column).data_type = "s"
         sheet.cell(row_number, 2).number_format = "@"
         sheet.cell(row_number, 6).number_format = "0.00"
         sheet.cell(row_number, 7).number_format = "yyyy/m/d"

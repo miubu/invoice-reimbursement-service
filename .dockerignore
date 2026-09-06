@@ -1,10 +1,12 @@
 .git
+.playwright-cli
 .env
 .venv
 __pycache__
 node_modules
 *.py[cod]
 preview
+output
 tests
 *.xlsx
 *.zip

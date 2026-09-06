@@ -2,9 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Protocol
 
-from archive_reader import ArchiveSummary
 from invoice_reader import InvoiceRecord
+
+
+class ValidationSummary(Protocol):
+    expected_count: int | None
+    expected_total: Decimal | None
 
 
 @dataclass(frozen=True)
@@ -18,7 +23,7 @@ class ValidationResult:
         return not self.errors and not self.review_files
 
 
-def validate(summary: ArchiveSummary, records: list[InvoiceRecord]) -> ValidationResult:
+def validate(summary: ValidationSummary, records: list[InvoiceRecord]) -> ValidationResult:
     errors: list[str] = []
     review_files = tuple(record.pdf_name for record in records if record.needs_review)
 

@@ -15,6 +15,7 @@ class ArchiveSummary:
     non_pdf_entries: tuple[str, ...]
     expected_count: int | None
     expected_total: Decimal | None
+    uncompressed_bytes: int = 0
 
 
 def locate_zip(requested: Path | None = None) -> Path:
@@ -72,6 +73,7 @@ def inspect_archive(
         non_pdf_entries=tuple(info.filename for info in file_entries if info not in pdf_entries),
         expected_count=int(count_match.group(1)) if count_match else None,
         expected_total=Decimal(total_match.group(1)) if total_match else None,
+        uncompressed_bytes=uncompressed_total,
     )
 
 

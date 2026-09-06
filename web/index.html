@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="上传电子发票 PDF 或 ZIP，核对票面字段并生成报销 Excel。">
+  <title>电子发票报销填报</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="电子发票报销填报首页">
+      <span class="brand-mark" aria-hidden="true">票</span>
+      <span>
+        <strong>电子发票报销填报</strong>
+        <small>票面原文识别 · 金额强校验</small>
+      </span>
+    </a>
+    <div class="header-actions">
+      <span class="status-dot"><i></i>服务在线</span>
+      <a href="/docs" target="_blank" rel="noreferrer">接口文档</a>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <section class="hero">
+      <p class="eyebrow">INVOICE WORKSPACE</p>
+      <h1>把发票放进来，核对后下载 Excel</h1>
+      <p>支持同时拖入多个 PDF 或 ZIP。合并 PDF 会按页拆开发票；任何无法可靠识别的字段都会停止导出，不会自行补写。</p>
+    </section>
+
+    <form id="invoice-form" novalidate>
+      <section class="panel upload-panel" aria-labelledby="upload-title">
+        <div class="section-heading">
+          <div>
+            <span class="step">01</span>
+            <h2 id="upload-title">选择发票文件</h2>
+          </div>
+          <span class="muted">PDF / ZIP · 可多选 · 总计不超过 50 MB</span>
+        </div>
+
+        <label id="drop-zone" class="drop-zone" for="file-input" tabindex="0">
+          <input id="file-input" type="file" accept=".pdf,.zip,application/pdf,application/zip" multiple hidden>
+          <span class="upload-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" role="img"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5v3A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-3"/></svg>
+          </span>
+          <strong>拖动文件到这里，或点击选择</strong>
+          <span>可一次选择四五张 PDF，也可以混合选择 PDF 和 ZIP</span>
+        </label>
+
+        <div id="file-empty" class="file-empty">尚未选择文件</div>
+        <ul id="file-list" class="file-list" aria-live="polite"></ul>
+      </section>
+
+      <section class="panel" aria-labelledby="profile-title">
+        <div class="section-heading">
+          <div>
+            <span class="step">02</span>
+            <h2 id="profile-title">填写报销信息</h2>
+          </div>
+          <div class="profile-actions">
+            <button id="save-profile" class="text-button" type="button">保存我的信息</button>
+            <button id="clear-profile" class="text-button subtle" type="button">清除保存</button>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <label class="field">
+            <span>实报人 <b>*</b></span>
+            <input id="claimant" name="claimant" autocomplete="name" maxlength="50" placeholder="请输入姓名" required>
+          </label>
+          <label class="field">
+            <span>学号 <b>*</b></span>
+            <input id="student-id" name="student_id" inputmode="numeric" autocomplete="off" maxlength="50" placeholder="按文本写入 Excel" required>
+          </label>
+          <label class="field">
+            <span>电话 <b>*</b></span>
+            <input id="phone" name="phone" inputmode="tel" autocomplete="tel" maxlength="50" placeholder="请输入联系电话" required>
+          </label>
+          <label class="field">
+            <span>填报日期 <b>*</b></span>
+            <input id="fill-date" name="fill_date" type="date" required>
+          </label>
+          <label class="field">
+            <span>报销类型 <b>*</b></span>
+            <input id="reimbursement-type" name="reimbursement_type" maxlength="50" value="材 料 费" required>
+          </label>
+          <label class="field">
+            <span>是否传递发票 <b>*</b></span>
+            <select id="transmit-invoice" name="transmit_invoice">
+              <option value="YES">YES</option>
+              <option value="NO">NO</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>预期总金额 <b>*</b></span>
+            <div class="money-input"><span>¥</span><input id="expected-total" name="expected_total" inputmode="decimal" placeholder="例如 423.60"></div>
+            <small>用于强制核对价税合计；文件名含总金额时可自动读取。</small>
+          </label>
+          <label class="field">
+            <span>服务访问令牌</span>
+            <input id="api-token" type="password" autocomplete="one-time-code" placeholder="由管理员提供，本页不会永久保存">
+            <small>仅保存在当前浏览器标签页，关闭后清除。</small>
+          </label>
+        </div>
+        <p id="profile-message" class="inline-message" role="status"></p>
+      </section>
+
+      <section class="action-panel">
+        <div>
+          <strong>先预览，再导出</strong>
+          <span>预览会显示每张发票的票面原文字段和校验状态。</span>
+        </div>
+        <div class="button-row">
+          <button id="preview-button" class="button secondary" type="submit">
+            <span>识别并预览</span>
+          </button>
+          <button id="export-button" class="button primary" type="button" disabled>
+            <span>下载 Excel</span>
+          </button>
+        </div>
+      </section>
+    </form>
+
+    <section id="result-panel" class="panel result-panel" aria-labelledby="result-title" hidden>
+      <div class="section-heading result-heading">
+        <div>
+          <span class="step">03</span>
+          <h2 id="result-title">识别结果</h2>
+        </div>
+        <span id="result-badge" class="result-badge"></span>
+      </div>
+      <div id="summary-cards" class="summary-cards"></div>
+      <div id="result-notices" class="notices"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>文件 / 页</th>
+              <th>发票上的项目名称</th>
+              <th>发票上的规格型号</th>
+              <th>票面金额</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody id="result-body"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>

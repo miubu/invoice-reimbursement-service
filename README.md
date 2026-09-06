@@ -1,6 +1,6 @@
 # 电子发票报销填报服务
 
-这是一个 FastAPI 服务。用户通过网络上传包含电子发票 PDF 的 ZIP，服务按发票明细表的实际列位置提取“项目名称”“规格型号”和“价税合计（小写）”，并返回识别预览或 Excel 文件。
+这是一个带网页操作界面的 FastAPI 服务。用户可通过网络拖入一个或多个电子发票 PDF/ZIP，服务按发票明细表的实际列位置提取“项目名称”“规格型号”和“价税合计（小写）”，并返回识别预览或 Excel 文件。多页合并 PDF 会按页拆开处理。
 
 项目名称保留票面中的税收分类前缀和商品文字。规格型号为空时保持为空。服务不会根据商品常识补充、概括或改写字段，也不需要视觉模型或 API 密钥。
 
@@ -10,7 +10,8 @@
 docker compose up -d --build
 ```
 
-服务地址：`http://服务器地址:8000`  
+操作页面：`http://服务器地址:8000`
+
 交互式接口文档：`http://服务器地址:8000/docs`
 
 如果部署机器无法访问 Docker Hub，可以直接使用 GitHub Actions 已构建的公开镜像，避免在部署机本地构建：
@@ -25,29 +26,44 @@ docker compose -f docker-compose.ghcr.yml up -d
 curl.exe http://localhost:8000/healthz
 ```
 
+## 网页使用
+
+打开 `http://服务器地址:8000` 后可以：
+
+- 点击或拖拽添加多个 PDF/ZIP，二者可以混合上传；
+- 自动把多页 PDF 拆成 `第001页`、`第002页` 等独立发票记录；
+- 填写姓名、学号、电话、日期和报销类型；
+- 将姓名、学号等信息保存在当前浏览器的本地存储中；
+- 先预览项目名称、规格型号、金额与核对状态，再下载 Excel。
+
+每个浏览器分别保存自己的报销信息，服务器不会把某一位用户的姓名和学号设为所有人的默认值。服务访问令牌只保存在当前标签页的会话存储中。
+
 ## 预览识别结果
 
 预览接口只返回 JSON，不生成 Excel：
 
 ```powershell
 curl.exe -X POST "http://localhost:8000/v1/invoices/preview" `
-  -F "file=@C:\完整路径\发票.zip" `
+  -F "files=@C:\完整路径\发票1.pdf" `
+  -F "files=@C:\完整路径\发票2.pdf" `
+  -F "files=@C:\完整路径\其他发票.zip" `
   -F "expected_total=423.60"
 ```
 
-如果 ZIP 文件名已经含有“总金额423.60元”，可以省略 `expected_total`。响应会列出每个 PDF 的项目名称、规格型号、票面金额、状态和待核对原因。
+如果唯一上传文件的文件名已经含有“总金额423.60元”，可以省略 `expected_total`。多个普通 PDF 或合并 PDF 通常需要填写预期总金额。响应会列出每个发票页的项目名称、规格型号、票面金额、状态和待核对原因。
 
 ## 下载 Excel
 
 ```powershell
 curl.exe -X POST "http://localhost:8000/v1/invoices/export" `
-  -F "file=@C:\完整路径\发票.zip" `
+  -F "files=@C:\完整路径\发票1.pdf" `
+  -F "files=@C:\完整路径\发票2.pdf" `
   -F "expected_total=423.60" `
-  -F "claimant=李府鸿" `
-  -F "student_id=12604040" `
+  -F "claimant=实际报销人姓名" `
+  -F "student_id=实际学号" `
   -F "reimbursement_type=材 料 费" `
   -F "fill_date=2026/9/6" `
-  -F "phone=13516389370" `
+  -F "phone=实际联系电话" `
   -F "transmit_invoice=YES" `
   --output "发票报销填报表.xlsx"
 ```
@@ -75,9 +91,9 @@ curl.exe -X POST "http://localhost:8000/v1/invoices/export" `
 
 默认限制：
 
-- ZIP 上传最大 50 MB；
+- 单次请求全部上传文件合计最大 50 MB；
 - 解压后全部文件最大 200 MB；
-- 最多 100 张 PDF；
+- 拆页后最多 100 个发票页；
 - 单文件压缩比最大 200；
 - 拒绝 ZIP 路径穿越、同名 PDF 和伪造 ZIP 内容；
 - 每个请求使用独立临时目录，响应结束后自动清理；

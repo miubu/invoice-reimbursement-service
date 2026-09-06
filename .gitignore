@@ -4,5 +4,7 @@ __pycache__/
 *.py[cod]
 node_modules
 preview/
+.playwright-cli/
+output/
 *.xlsx
 *.zip
