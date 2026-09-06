@@ -13,6 +13,12 @@ docker compose up -d --build
 服务地址：`http://服务器地址:8000`  
 交互式接口文档：`http://服务器地址:8000/docs`
 
+如果部署机器无法访问 Docker Hub，可以直接使用 GitHub Actions 已构建的公开镜像，避免在部署机本地构建：
+
+```powershell
+docker pull ghcr.io/miubu/invoice-reimbursement-service:latest
+```
+
 检查运行状态：
 
 ```powershell
