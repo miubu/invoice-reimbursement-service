@@ -25,6 +25,8 @@ const fields = {
 const profileKey = "invoice-reimbursement-profile-v1";
 let selectedFiles = [];
 let previewValid = false;
+let previewData = null;
+let confirmedReviewIds = new Set();
 let toastTimer;
 
 function showToast(message, isError = false) {
@@ -46,6 +48,8 @@ function fileKey(file) {
 
 function invalidatePreview() {
   previewValid = false;
+  previewData = null;
+  confirmedReviewIds.clear();
   exportButton.disabled = true;
 }
 
@@ -113,6 +117,7 @@ function buildFormData(includeProfile = false) {
     Object.entries(fields).forEach(([name, input]) => {
       if (name !== "expected_total" && name !== "reimbursement_type") data.append(name, input.value.trim());
     });
+    data.append("confirmed_review_ids", JSON.stringify([...confirmedReviewIds]));
   }
   return data;
 }
@@ -156,6 +161,8 @@ function addNotice(message, kind = "info") {
 }
 
 function renderResult(data) {
+  previewData = data;
+  confirmedReviewIds.clear();
   resultPanel.hidden = false;
   summaryCards.replaceChildren();
   resultNotices.replaceChildren();
@@ -214,15 +221,59 @@ function renderResult(data) {
       reasons.textContent = record.review_reasons.join("；");
       status.append(reasons);
     }
+    if (record.review_confirmable) {
+      const confirmation = document.createElement("label");
+      confirmation.className = "manual-review-confirmation";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.recordId = record.record_id;
+      const text = document.createElement("span");
+      text.textContent = "我已对照发票票面，确认上述项目名称和规格型号无误";
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) {
+          confirmedReviewIds.add(record.record_id);
+          pill.textContent = "已人工确认";
+          pill.className = "status-pill success";
+        } else {
+          confirmedReviewIds.delete(record.record_id);
+          pill.textContent = record.status;
+          pill.className = "status-pill warning";
+        }
+        updateExportState();
+      });
+      confirmation.append(checkbox, text);
+      status.append(confirmation);
+    }
     row.append(filename, item, specification, reimbursementType, amount, remarks, status);
     resultBody.append(row);
   }
 
-  previewValid = Boolean(data.can_export);
-  exportButton.disabled = !previewValid;
-  resultBadge.textContent = previewValid ? "校验通过，可以导出" : "需要补充或人工核对";
-  resultBadge.className = `result-badge ${previewValid ? "success" : "warning"}`;
+  updateExportState();
   resultPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function updateExportState() {
+  if (!previewData) {
+    previewValid = false;
+    exportButton.disabled = true;
+    return;
+  }
+  const pending = (previewData.records || []).filter(record => (
+    record.needs_review && !confirmedReviewIds.has(record.record_id)
+  ));
+  const hasBlockingError = !previewData.expected_total || (previewData.errors || []).length > 0;
+  previewValid = !hasBlockingError && pending.length === 0;
+  exportButton.disabled = !previewValid;
+  if (previewValid) {
+    resultBadge.textContent = "校验通过，可以导出";
+    resultBadge.className = "result-badge success";
+  } else if (!hasBlockingError && pending.length && pending.every(record => record.review_confirmable)) {
+    resultBadge.textContent = `请完成 ${pending.length} 张发票的人工核对`;
+    resultBadge.className = "result-badge warning";
+  } else {
+    resultBadge.textContent = "需要补充或人工核对";
+    resultBadge.className = "result-badge warning";
+  }
 }
 
 async function previewInvoices(event) {

@@ -33,6 +33,7 @@ HEADERS = [
     "是否传递发票",
     "备注",
 ]
+MANUAL_REVIEW_NOTE = "已人工核对票面项目名称及规格型号"
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,7 @@ def build_workbook(
     fill_date: datetime,
     profile: ReimbursementProfile,
     rules: tuple[ReimbursementRule, ...] | None = None,
+    confirmed_review_ids: set[str] | None = None,
 ) -> Workbook:
     workbook = Workbook()
     sheet = workbook.active
@@ -62,8 +64,16 @@ def build_workbook(
         for record in records
     ]
 
+    confirmed_ids = confirmed_review_ids or set()
     sheet.append(HEADERS)
-    for record, classification in zip(records, classifications, strict=True):
+    for index, (record, classification) in enumerate(
+        zip(records, classifications, strict=True),
+        start=1,
+    ):
+        remarks = list(classification.remarks)
+        if f"invoice-{index:03d}" in confirmed_ids:
+            remarks.append(MANUAL_REVIEW_NOTE)
+        remark_text = "\n".join(remarks)
         sheet.append([
             profile.claimant,
             profile.student_id,
@@ -74,7 +84,7 @@ def build_workbook(
             fill_date,
             profile.phone,
             profile.transmit_invoice,
-            "\n".join(classification.remarks),
+            remark_text,
         ])
 
     total_row = len(records) + 2
@@ -160,8 +170,9 @@ def build_excel_bytes(
     fill_date: datetime,
     profile: ReimbursementProfile,
     rules: tuple[ReimbursementRule, ...] | None = None,
+    confirmed_review_ids: set[str] | None = None,
 ) -> bytes:
-    workbook = build_workbook(records, fill_date, profile, rules)
+    workbook = build_workbook(records, fill_date, profile, rules, confirmed_review_ids)
     output = BytesIO()
     workbook.save(output)
     workbook.close()
@@ -174,8 +185,15 @@ def write_excel(
     fill_date: datetime,
     profile: ReimbursementProfile | None = None,
     rules: tuple[ReimbursementRule, ...] | None = None,
+    confirmed_review_ids: set[str] | None = None,
 ) -> None:
-    content = build_excel_bytes(records, fill_date, profile or ReimbursementProfile(), rules)
+    content = build_excel_bytes(
+        records,
+        fill_date,
+        profile or ReimbursementProfile(),
+        rules,
+        confirmed_review_ids,
+    )
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import json
 import os
 import re
 import secrets
@@ -49,6 +50,9 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 WEB_DIR = Path(__file__).resolve().parent / "web"
 SUPPORTED_SUFFIXES = {".pdf", ".zip"}
+CONFIRMABLE_REVIEW_REASON = re.compile(
+    r"^识别到 \d+ 个不同的非折扣项目，无法安全合并为一行$"
+)
 
 
 class RuleUpdate(BaseModel):
@@ -106,7 +110,7 @@ class JobLimiter:
 limiter = JobLimiter(MAX_CONCURRENT_JOBS, MAX_QUEUED_JOBS, QUEUE_TIMEOUT_SECONDS)
 app = FastAPI(
     title="电子发票报销填报服务",
-    version="3.0.0",
+    version="3.1.0",
     description="上传一个或多个电子发票 PDF/ZIP，预览票面原文字段并下载校验后的 Excel。",
 )
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
@@ -199,14 +203,25 @@ def _serialize(
     result: ProcessingResult,
     fallback_type: str,
     rules: tuple[ReimbursementRule, ...],
+    confirmed_review_ids: set[str] | None = None,
 ) -> dict:
     validation = result.validation
     summary = result.summary
     records = []
-    for record in result.records:
+    confirmed_ids = confirmed_review_ids or set()
+    unresolved_review_files: list[str] = []
+    for index, record in enumerate(result.records, start=1):
+        record_id = f"invoice-{index:03d}"
+        confirmable = _review_is_confirmable(record)
+        confirmed = confirmable and record_id in confirmed_ids
+        if record.needs_review and not confirmed:
+            unresolved_review_files.append(record.pdf_name)
         item = record.to_json_dict()
         classification = classify_reimbursement(record.item_name, fallback_type, rules)
         item.update({
+            "record_id": record_id,
+            "review_confirmable": confirmable,
+            "review_confirmed": confirmed,
             "reimbursement_type": classification.reimbursement_type,
             "remarks": list(classification.remarks),
             "template_urls": list(classification.template_urls),
@@ -225,10 +240,37 @@ def _serialize(
         "amount_total": f"{validation.total:.2f}" if validation.total is not None else None,
         "expected_total": f"{summary.expected_total:.2f}" if summary.expected_total is not None else None,
         "errors": list(validation.errors),
-        "review_files": list(validation.review_files),
-        "can_export": validation.can_export and summary.expected_total is not None,
+        "review_files": unresolved_review_files,
+        "can_export": (
+            not validation.errors
+            and not unresolved_review_files
+            and summary.expected_total is not None
+        ),
         "records": records,
     }
+
+
+def _review_is_confirmable(record) -> bool:
+    return (
+        record.needs_review
+        and record.amount is not None
+        and bool(record.item_name)
+        and bool(record.review_reasons)
+        and all(CONFIRMABLE_REVIEW_REASON.fullmatch(reason) for reason in record.review_reasons)
+    )
+
+
+def _parse_confirmed_review_ids(value: str) -> set[str]:
+    try:
+        parsed = json.loads(value or "[]")
+    except json.JSONDecodeError as error:
+        raise HTTPException(status_code=422, detail="人工核对记录格式无效，请重新预览。") from error
+    if not isinstance(parsed, list) or len(parsed) > MAX_PDF_COUNT:
+        raise HTTPException(status_code=422, detail="人工核对记录格式无效，请重新预览。")
+    confirmed_ids = {str(value) for value in parsed}
+    if any(not re.fullmatch(r"invoice-\d{3}", record_id) for record_id in confirmed_ids):
+        raise HTTPException(status_code=422, detail="人工核对记录包含无效编号，请重新预览。")
+    return confirmed_ids
 
 
 def _collect_uploads(files: list[UploadFile] | None, file: UploadFile | None) -> list[UploadFile]:
@@ -348,20 +390,29 @@ async def export_invoices(
     fill_date: str = Form(default=""),
     phone: str = Form(default=""),
     transmit_invoice: str = Form(default="YES"),
+    confirmed_review_ids: str = Form(default="[]"),
 ) -> Response:
     try:
         fallback_type = normalize_reimbursement_type(reimbursement_type)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     rules = get_rules()
+    confirmed_ids = _parse_confirmed_review_ids(confirmed_review_ids)
     result = await _process_uploads(_collect_uploads(files, file), expected_total)
-    payload = _serialize(result, fallback_type, rules)
+    confirmable_ids = {
+        f"invoice-{index:03d}"
+        for index, record in enumerate(result.records, start=1)
+        if _review_is_confirmable(record)
+    }
+    if not confirmed_ids.issubset(confirmable_ids):
+        raise HTTPException(status_code=422, detail="发票内容已变化或确认记录无效，请重新预览并核对。")
+    payload = _serialize(result, fallback_type, rules, confirmed_ids)
     if result.summary.expected_total is None:
         raise HTTPException(
             status_code=422,
             detail={"message": "请填写预期总金额，用于与所有发票价税合计核对。", **payload},
         )
-    if not result.validation.can_export:
+    if not payload["can_export"]:
         raise HTTPException(status_code=422, detail={"message": "校验未通过，未生成 Excel。", **payload})
 
     parsed_date = _parse_date(_required_text(fill_date, "填报日期", 10))
@@ -372,7 +423,14 @@ async def export_invoices(
         phone=_required_text(phone, "电话", 50),
         transmit_invoice=_validate_transmit_invoice(transmit_invoice),
     )
-    workbook = await asyncio.to_thread(build_excel_bytes, list(result.records), parsed_date, profile, rules)
+    workbook = await asyncio.to_thread(
+        build_excel_bytes,
+        list(result.records),
+        parsed_date,
+        profile,
+        rules,
+        confirmed_ids,
+    )
     filename = "发票报销填报表.xlsx"
     disposition = f"attachment; filename=invoice-reimbursement.xlsx; filename*=UTF-8''{quote(filename)}"
     return Response(

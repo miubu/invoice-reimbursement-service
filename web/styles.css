@@ -159,6 +159,12 @@ tbody tr:last-child td { border-bottom: 0; }
 .status-pill.success { color: var(--green); background: var(--green-soft); }
 .status-pill.warning { color: var(--amber); background: var(--amber-soft); }
 .review-reasons { color: var(--red); margin-top: 5px; font-size: 11px; }
+.manual-review-confirmation {
+  display: flex; gap: 7px; align-items: flex-start; margin-top: 9px; padding: 8px;
+  border: 1px solid #f5c26b; border-radius: 8px; background: var(--amber-soft);
+  color: #7a2e0e; font-size: 11px; line-height: 1.45; cursor: pointer;
+}
+.manual-review-confirmation input { margin: 2px 0 0; flex: 0 0 auto; }
 .remarks-cell { color: var(--red); background: var(--red-soft); }
 .remarks-cell a, .remarks-cell span { color: var(--red); display: block; font-weight: 650; }
 .remarks-cell a + a, .remarks-cell a + span, .remarks-cell span + a, .remarks-cell span + span { margin-top: 6px; }
