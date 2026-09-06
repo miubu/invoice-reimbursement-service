@@ -15,11 +15,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN groupadd --system invoice && useradd --system --gid invoice --create-home invoice
+RUN mkdir -p /data && chown invoice:invoice /data
 
 COPY requirements.txt ./
 RUN python -m pip install --upgrade pip && python -m pip install -r requirements.txt
 
-COPY archive_reader.py excel_writer.py invoice_reader.py processing.py validator.py server.py ./
+COPY archive_reader.py excel_writer.py invoice_reader.py processing.py validator.py reimbursement_rules.py site_settings.py server.py ./
 COPY web ./web
 
 USER invoice

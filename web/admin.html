@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex,nofollow">
+  <title>管理后台 · 电子发票报销填报</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/styles.css">
+  <link rel="stylesheet" href="/assets/admin.css">
+</head>
+<body class="admin-body">
+  <header class="topbar">
+    <a class="brand" href="/">
+      <span class="brand-mark">管</span>
+      <span><strong>发票服务管理后台</strong><small>规则 · 文案 · 图片</small></span>
+    </a>
+    <div class="header-actions"><a href="/">返回用户页</a><button id="logout-button" class="text-button subtle" type="button" hidden>退出</button></div>
+  </header>
+
+  <main class="admin-shell">
+    <section id="login-panel" class="panel login-panel">
+      <p class="eyebrow">ADMIN ACCESS</p>
+      <h1>登录管理后台</h1>
+      <p>管理账号只用于修改服务器配置，不影响普通用户上传发票。</p>
+      <form id="login-form" class="login-form">
+        <label class="field"><span>账号</span><input id="admin-username" value="admin" autocomplete="username" required></label>
+        <label class="field"><span>密码</span><input id="admin-password" type="password" autocomplete="current-password" required></label>
+        <button class="button primary" type="submit"><span>登录</span></button>
+      </form>
+      <p id="login-error" class="admin-error" role="alert"></p>
+    </section>
+
+    <div id="admin-console" hidden>
+      <div class="admin-heading">
+        <div><p class="eyebrow">CONTROL PANEL</p><h1>服务内容管理</h1></div>
+        <span>修改后立即对新请求生效</span>
+      </div>
+
+      <section class="panel">
+        <div class="section-heading"><div><span class="step">01</span><h2>报销识别规则</h2></div><span class="muted">关键词每行一个，支持 * 通配符</span></div>
+        <div id="rule-list" class="rule-list"></div>
+        <div class="admin-actions"><button id="save-rules" class="button primary" type="button"><span>保存全部规则</span></button></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading"><div><span class="step">02</span><h2>界面文案</h2></div><span class="muted">修改用户首页显示的文字</span></div>
+        <div id="site-text-fields" class="site-text-grid"></div>
+        <div class="admin-actions"><button id="save-site-texts" class="button primary" type="button"><span>保存界面文案</span></button></div>
+      </section>
+
+      <section class="panel">
+        <div class="section-heading"><div><span class="step">03</span><h2>界面图片</h2></div><span class="muted">PNG / JPEG / WebP，单张不超过 5 MB</span></div>
+        <div id="image-manager" class="image-manager"></div>
+      </section>
+    </div>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/assets/admin.js" defer></script>
+</body>
+</html>

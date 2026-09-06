@@ -22,7 +22,6 @@ const fields = {
   transmit_invoice: document.querySelector("#transmit-invoice"),
   expected_total: document.querySelector("#expected-total"),
 };
-const apiToken = document.querySelector("#api-token");
 const profileKey = "invoice-reimbursement-profile-v1";
 let selectedFiles = [];
 let previewValid = false;
@@ -109,17 +108,13 @@ function buildFormData(includeProfile = false) {
   const data = new FormData();
   selectedFiles.forEach(file => data.append("files", file, file.name));
   if (fields.expected_total.value.trim()) data.append("expected_total", fields.expected_total.value.trim());
+  data.append("reimbursement_type", fields.reimbursement_type.value);
   if (includeProfile) {
     Object.entries(fields).forEach(([name, input]) => {
-      if (name !== "expected_total") data.append(name, input.value.trim());
+      if (name !== "expected_total" && name !== "reimbursement_type") data.append(name, input.value.trim());
     });
   }
   return data;
-}
-
-function requestHeaders() {
-  const token = apiToken.value.trim();
-  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 function validateBeforeRequest(includeProfile = false) {
@@ -190,9 +185,24 @@ function renderResult(data) {
     item.textContent = record.item_name || "（空）";
     const specification = document.createElement("td");
     specification.textContent = record.specification || "（空）";
+    const reimbursementType = document.createElement("td");
+    reimbursementType.textContent = record.reimbursement_type || "材料费";
     const amount = document.createElement("td");
     amount.className = "amount";
     amount.textContent = record.amount ? `¥ ${record.amount}` : "未识别";
+    const remarks = document.createElement("td");
+    remarks.className = record.remarks?.length ? "remarks-cell" : "";
+    (record.remarks || []).forEach((message, index) => {
+      const line = document.createElement(record.template_urls?.[index] ? "a" : "span");
+      line.textContent = message;
+      if (record.template_urls?.[index]) {
+        line.href = record.template_urls[index];
+        line.target = "_blank";
+        line.rel = "noreferrer";
+        line.title = "点击打开说明模板";
+      }
+      remarks.append(line);
+    });
     const status = document.createElement("td");
     const pill = document.createElement("span");
     pill.className = `status-pill ${record.needs_review ? "warning" : "success"}`;
@@ -204,7 +214,7 @@ function renderResult(data) {
       reasons.textContent = record.review_reasons.join("；");
       status.append(reasons);
     }
-    row.append(filename, item, specification, amount, status);
+    row.append(filename, item, specification, reimbursementType, amount, remarks, status);
     resultBody.append(row);
   }
 
@@ -223,7 +233,6 @@ async function previewInvoices(event) {
   try {
     const response = await fetch("/v1/invoices/preview", {
       method: "POST",
-      headers: requestHeaders(),
       body: buildFormData(false),
     });
     if (!response.ok) throw new Error(await parseError(response));
@@ -246,7 +255,6 @@ async function exportInvoices() {
   try {
     const response = await fetch("/v1/invoices/export", {
       method: "POST",
-      headers: requestHeaders(),
       body: buildFormData(true),
     });
     if (!response.ok) throw new Error(await parseError(response));
@@ -294,6 +302,50 @@ function loadProfile() {
   }
 }
 
+async function loadSiteSettings() {
+  try {
+    const response = await fetch("/v1/site", { cache: "no-store" });
+    if (!response.ok) return;
+    const site = await response.json();
+    const textTargets = {
+      site_name: "#site-name",
+      site_tagline: "#site-tagline",
+      hero_kicker: "#hero-kicker",
+      hero_title: "#hero-title",
+      hero_description: "#hero-description",
+      upload_title: "#upload-title",
+      upload_primary: "#upload-primary",
+      upload_secondary: "#upload-secondary",
+      profile_title: "#profile-title",
+      action_title: "#action-title",
+      action_description: "#action-description",
+      preview_button: "#preview-button-text",
+      export_button: "#export-button-text",
+    };
+    Object.entries(textTargets).forEach(([key, selector]) => {
+      const element = document.querySelector(selector);
+      if (element && site.texts?.[key]) element.textContent = site.texts[key];
+    });
+    if (site.texts?.site_name) document.title = site.texts.site_name;
+
+    const logo = document.querySelector("#site-logo");
+    const logoFallback = document.querySelector("#logo-fallback");
+    if (site.assets?.logo) {
+      logo.src = site.assets.logo;
+      logo.hidden = false;
+      logoFallback.hidden = true;
+    }
+    const heroImage = document.querySelector("#hero-image");
+    if (site.assets?.hero) {
+      heroImage.src = site.assets.hero;
+      heroImage.hidden = false;
+      document.querySelector(".hero").classList.add("has-image");
+    }
+  } catch {
+    // 管理配置加载失败时保留页面内置文案，不影响发票处理。
+  }
+}
+
 fileInput.addEventListener("change", () => {
   addFiles(fileInput.files);
   fileInput.value = "";
@@ -325,11 +377,11 @@ document.querySelector("#clear-profile").addEventListener("click", () => {
   showToast("已清除保存的信息。")
 });
 fields.expected_total.addEventListener("input", invalidatePreview);
-apiToken.addEventListener("input", () => { sessionStorage.setItem("invoice-service-token", apiToken.value); });
+fields.reimbursement_type.addEventListener("change", invalidatePreview);
 
 const today = new Date();
 const localToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 fields.fill_date.value = localToday;
-apiToken.value = sessionStorage.getItem("invoice-service-token") || "";
 loadProfile();
 renderFiles();
+loadSiteSettings();

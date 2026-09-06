@@ -52,6 +52,8 @@ button, label[for] { -webkit-tap-highlight-color: transparent; }
   color: white; background: var(--blue); border-radius: 12px; font-weight: 800;
   box-shadow: 0 7px 18px rgba(21,94,239,.25);
 }
+.brand-mark img { width: 100%; height: 100%; object-fit: contain; border-radius: 10px; }
+.brand-mark b { font: inherit; }
 .brand strong { display: block; font-size: 17px; letter-spacing: .02em; }
 .brand small { display: block; color: var(--muted); margin-top: 3px; font-size: 12px; }
 .header-actions { display: flex; align-items: center; gap: 22px; font-size: 13px; }
@@ -60,10 +62,12 @@ button, label[for] { -webkit-tap-highlight-color: transparent; }
 .status-dot i { width: 8px; height: 8px; border-radius: 50%; background: #12b76a; box-shadow: 0 0 0 4px #d1fadf; }
 
 .page-shell { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 55px 0 80px; }
-.hero { max-width: 780px; margin-bottom: 35px; }
+.hero { max-width: 100%; margin-bottom: 35px; display: flex; align-items: center; justify-content: space-between; gap: 35px; }
+.hero-copy { max-width: 780px; }
 .eyebrow { margin: 0 0 12px; color: var(--blue); font-weight: 800; font-size: 12px; letter-spacing: .14em; }
 .hero h1 { margin: 0; font-size: clamp(32px, 5vw, 50px); line-height: 1.13; letter-spacing: -.035em; }
-.hero > p:last-child { margin: 17px 0 0; max-width: 710px; color: var(--muted); font-size: 16px; line-height: 1.8; }
+.hero-copy > p:last-child { margin: 17px 0 0; max-width: 710px; color: var(--muted); font-size: 16px; line-height: 1.8; }
+.hero-image { width: min(340px, 32vw); max-height: 230px; object-fit: contain; border-radius: 18px; }
 
 .panel {
   background: var(--panel); border: 1px solid var(--line); border-radius: 18px;
@@ -146,7 +150,7 @@ button, label[for] { -webkit-tap-highlight-color: transparent; }
 .notice.warning { color: var(--amber); background: var(--amber-soft); }
 .notice.error { color: var(--red); background: var(--red-soft); }
 .table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: 12px; }
-table { width: 100%; min-width: 900px; border-collapse: collapse; font-size: 12px; }
+table { width: 100%; min-width: 1120px; border-collapse: collapse; font-size: 12px; }
 th { text-align: left; color: #475467; background: #f8fafc; font-weight: 750; padding: 12px; border-bottom: 1px solid var(--line); }
 td { vertical-align: top; padding: 13px 12px; border-bottom: 1px solid #edf0f3; line-height: 1.55; }
 tbody tr:last-child td { border-bottom: 0; }
@@ -155,6 +159,9 @@ tbody tr:last-child td { border-bottom: 0; }
 .status-pill.success { color: var(--green); background: var(--green-soft); }
 .status-pill.warning { color: var(--amber); background: var(--amber-soft); }
 .review-reasons { color: var(--red); margin-top: 5px; font-size: 11px; }
+.remarks-cell { color: var(--red); background: var(--red-soft); }
+.remarks-cell a, .remarks-cell span { color: var(--red); display: block; font-weight: 650; }
+.remarks-cell a + a, .remarks-cell a + span, .remarks-cell span + a, .remarks-cell span + span { margin-top: 6px; }
 
 .toast { position: fixed; right: 24px; bottom: 24px; max-width: min(420px, calc(100vw - 48px)); background: #101828; color: white; border-radius: 11px; padding: 13px 16px; box-shadow: 0 12px 30px rgba(16,24,40,.28); font-size: 13px; opacity: 0; transform: translateY(10px); pointer-events: none; transition: .2s ease; z-index: 50; }
 .toast.show { opacity: 1; transform: translateY(0); }
@@ -163,6 +170,7 @@ tbody tr:last-child td { border-bottom: 0; }
 @media (max-width: 900px) {
   .form-grid { grid-template-columns: repeat(2, minmax(0,1fr)); }
   .summary-cards { grid-template-columns: repeat(2,1fr); }
+  .hero-image { width: 250px; }
 }
 
 @media (max-width: 620px) {
@@ -170,6 +178,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .brand small, .status-dot { display: none; }
   .page-shell { width: min(100% - 24px, 1180px); padding-top: 36px; }
   .hero h1 { font-size: 34px; }
+  .hero { align-items: flex-start; flex-direction: column; }
+  .hero-image { width: 100%; max-height: 200px; }
   .panel { padding: 19px; border-radius: 14px; }
   .section-heading { align-items: flex-start; }
   .section-heading .muted { display: none; }

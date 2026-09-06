@@ -2,7 +2,7 @@ services:
   invoice-service:
     build:
       context: .
-    image: invoice-reimbursement-service:2.0.0
+    image: invoice-reimbursement-service:3.0.0
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -15,9 +15,17 @@ services:
       MAX_UNCOMPRESSED_MB: "200"
       MAX_PDF_COUNT: "100"
       MAX_COMPRESSION_RATIO: "200"
-      SERVICE_API_KEY: "${SERVICE_API_KEY:-}"
+      ADMIN_USERNAME: "${ADMIN_USERNAME:-admin}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+      RULES_DB_PATH: "/data/invoice-service.db"
+      SITE_ASSET_DIR: "/data/site-assets"
     security_opt:
       - no-new-privileges:true
     read_only: true
     tmpfs:
       - /tmp:size=512m,mode=1777
+    volumes:
+      - invoice-data:/data
+
+volumes:
+  invoice-data:

@@ -7,4 +7,8 @@ preview/
 .playwright-cli/
 output/
 *.xlsx
+*.db
+*.db-wal
+*.db-shm
+data/
 *.zip

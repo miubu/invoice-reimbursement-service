@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import os
 import re
 import secrets
@@ -11,12 +13,29 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
 from excel_writer import ReimbursementProfile, build_excel_bytes
 from processing import ProcessingResult, process_inputs
+from reimbursement_rules import (
+    REIMBURSEMENT_TYPES,
+    ReimbursementRule,
+    classify_reimbursement,
+    get_rules,
+    normalize_reimbursement_type,
+    update_rules,
+)
+from site_settings import (
+    ASSET_DIR,
+    SITE_ASSET_SLOTS,
+    delete_site_image,
+    save_site_image,
+    site_payload,
+    update_site_texts,
+)
 
 
 MAX_CONCURRENT_JOBS = max(5, int(os.getenv("MAX_CONCURRENT_JOBS", "10")))
@@ -26,9 +45,27 @@ MAX_UPLOAD_BYTES = max(1, int(os.getenv("MAX_UPLOAD_MB", "50"))) * 1024 * 1024
 MAX_UNCOMPRESSED_BYTES = max(1, int(os.getenv("MAX_UNCOMPRESSED_MB", "200"))) * 1024 * 1024
 MAX_PDF_COUNT = max(1, int(os.getenv("MAX_PDF_COUNT", "100")))
 MAX_COMPRESSION_RATIO = max(1.0, float(os.getenv("MAX_COMPRESSION_RATIO", "200")))
-SERVICE_API_KEY = os.getenv("SERVICE_API_KEY", "")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 WEB_DIR = Path(__file__).resolve().parent / "web"
 SUPPORTED_SUFFIXES = {".pdf", ".zip"}
+
+
+class RuleUpdate(BaseModel):
+    id: str
+    reimbursement_type: str = ""
+    keywords: list[str] = Field(default_factory=list)
+    remark: str = ""
+    template_url: str = ""
+    enabled: bool = True
+
+
+class RulesUpdateBody(BaseModel):
+    rules: list[RuleUpdate]
+
+
+class SiteTextUpdateBody(BaseModel):
+    texts: dict[str, str]
 
 
 class JobLimiter:
@@ -69,22 +106,32 @@ class JobLimiter:
 limiter = JobLimiter(MAX_CONCURRENT_JOBS, MAX_QUEUED_JOBS, QUEUE_TIMEOUT_SECONDS)
 app = FastAPI(
     title="电子发票报销填报服务",
-    version="2.0.0",
+    version="3.0.0",
     description="上传一个或多个电子发票 PDF/ZIP，预览票面原文字段并下载校验后的 Excel。",
 )
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
 
-async def _require_api_key(authorization: str | None = Header(default=None)) -> None:
-    if not SERVICE_API_KEY:
-        return
-    scheme, _, supplied = (authorization or "").partition(" ")
-    valid = scheme.lower() == "bearer" and secrets.compare_digest(supplied, SERVICE_API_KEY)
+def _require_admin(authorization: str | None) -> None:
+    if not ADMIN_PASSWORD:
+        raise HTTPException(status_code=503, detail="管理员密码尚未在服务器环境变量中设置。")
+    scheme, _, encoded = (authorization or "").partition(" ")
+    try:
+        decoded = base64.b64decode(encoded, validate=True).decode("utf-8")
+        username, separator, password = decoded.partition(":")
+    except (binascii.Error, UnicodeDecodeError):
+        username = password = separator = ""
+    valid = (
+        scheme.lower() == "basic"
+        and bool(separator)
+        and secrets.compare_digest(username, ADMIN_USERNAME)
+        and secrets.compare_digest(password, ADMIN_PASSWORD)
+    )
     if not valid:
         raise HTTPException(
             status_code=401,
-            detail="缺少或无效的服务访问令牌。",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail="管理员账号或密码错误。",
+            headers={"WWW-Authenticate": 'Basic realm="invoice-admin", charset="UTF-8"'},
         )
 
 
@@ -148,9 +195,24 @@ def _parse_total(value: str | None) -> Decimal | None:
     return total
 
 
-def _serialize(result: ProcessingResult) -> dict:
+def _serialize(
+    result: ProcessingResult,
+    fallback_type: str,
+    rules: tuple[ReimbursementRule, ...],
+) -> dict:
     validation = result.validation
     summary = result.summary
+    records = []
+    for record in result.records:
+        item = record.to_json_dict()
+        classification = classify_reimbursement(record.item_name, fallback_type, rules)
+        item.update({
+            "reimbursement_type": classification.reimbursement_type,
+            "remarks": list(classification.remarks),
+            "template_urls": list(classification.template_urls),
+            "matched_rule_ids": list(classification.matched_rule_ids),
+        })
+        records.append(item)
     return {
         "input_count": len(summary.source_names),
         "source_names": list(summary.source_names),
@@ -165,7 +227,7 @@ def _serialize(result: ProcessingResult) -> dict:
         "errors": list(validation.errors),
         "review_files": list(validation.review_files),
         "can_export": validation.can_export and summary.expected_total is not None,
-        "records": [record.to_json_dict() for record in result.records],
+        "records": records,
     }
 
 
@@ -216,9 +278,21 @@ def _parse_date(value: str) -> datetime:
     raise HTTPException(status_code=422, detail="填报日期必须使用 yyyy/m/d 或 yyyy-mm-dd 格式。")
 
 
+def _validate_transmit_invoice(value: str) -> str:
+    cleaned = value.strip().upper()
+    if cleaned not in {"YES", "NO"}:
+        raise HTTPException(status_code=422, detail="是否传递发票只能选择 YES 或 NO。")
+    return cleaned
+
+
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def home() -> HTMLResponse:
     return HTMLResponse((WEB_DIR / "index.html").read_text(encoding="utf-8"))
+
+
+@app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
+async def admin_home() -> HTMLResponse:
+    return HTMLResponse((WEB_DIR / "admin.html").read_text(encoding="utf-8"))
 
 
 @app.get("/healthz")
@@ -232,15 +306,35 @@ async def healthz() -> dict:
     }
 
 
+@app.get("/v1/site")
+async def public_site_settings() -> dict:
+    return site_payload()
+
+
+@app.get("/site-assets/{filename}", include_in_schema=False)
+async def public_site_asset(filename: str) -> FileResponse:
+    if filename not in {f"{slot}.webp" for slot in SITE_ASSET_SLOTS}:
+        raise HTTPException(status_code=404, detail="图片不存在。")
+    path = ASSET_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="图片不存在。")
+    return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "no-cache"})
+
+
 @app.post("/v1/invoices/preview")
 async def preview_invoices(
     files: list[UploadFile] | None = File(default=None, description="一个或多个 PDF/ZIP"),
     file: UploadFile | None = File(default=None, description="兼容旧版单 ZIP 参数"),
     expected_total: str | None = Form(default=None),
-    _authenticated: None = Depends(_require_api_key),
+    reimbursement_type: str = Form(default="材料费"),
 ) -> JSONResponse:
+    try:
+        fallback_type = normalize_reimbursement_type(reimbursement_type)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    rules = get_rules()
     result = await _process_uploads(_collect_uploads(files, file), expected_total)
-    return JSONResponse(_serialize(result))
+    return JSONResponse(_serialize(result, fallback_type, rules))
 
 
 @app.post("/v1/invoices/export")
@@ -250,14 +344,18 @@ async def export_invoices(
     expected_total: str | None = Form(default=None),
     claimant: str = Form(default=""),
     student_id: str = Form(default=""),
-    reimbursement_type: str = Form(default="材 料 费"),
+    reimbursement_type: str = Form(default="材料费"),
     fill_date: str = Form(default=""),
     phone: str = Form(default=""),
     transmit_invoice: str = Form(default="YES"),
-    _authenticated: None = Depends(_require_api_key),
 ) -> Response:
+    try:
+        fallback_type = normalize_reimbursement_type(reimbursement_type)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    rules = get_rules()
     result = await _process_uploads(_collect_uploads(files, file), expected_total)
-    payload = _serialize(result)
+    payload = _serialize(result, fallback_type, rules)
     if result.summary.expected_total is None:
         raise HTTPException(
             status_code=422,
@@ -270,11 +368,11 @@ async def export_invoices(
     profile = ReimbursementProfile(
         claimant=_required_text(claimant, "实报人", 50),
         student_id=_required_text(student_id, "学号", 50),
-        reimbursement_type=_required_text(reimbursement_type, "报销类型", 50),
+        reimbursement_type=fallback_type,
         phone=_required_text(phone, "电话", 50),
-        transmit_invoice=_required_text(transmit_invoice, "是否传递发票", 20),
+        transmit_invoice=_validate_transmit_invoice(transmit_invoice),
     )
-    workbook = await asyncio.to_thread(build_excel_bytes, list(result.records), parsed_date, profile)
+    workbook = await asyncio.to_thread(build_excel_bytes, list(result.records), parsed_date, profile, rules)
     filename = "发票报销填报表.xlsx"
     disposition = f"attachment; filename=invoice-reimbursement.xlsx; filename*=UTF-8''{quote(filename)}"
     return Response(
@@ -282,3 +380,76 @@ async def export_invoices(
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": disposition},
     )
+
+
+@app.get("/v1/admin/rules")
+async def admin_get_rules(authorization: str | None = Header(default=None)) -> dict:
+    _require_admin(authorization)
+    return {
+        "rules": [rule.to_dict() for rule in get_rules()],
+        "reimbursement_types": list(REIMBURSEMENT_TYPES),
+    }
+
+
+@app.put("/v1/admin/rules")
+async def admin_update_rules(
+    body: RulesUpdateBody,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization)
+    try:
+        rules = update_rules([rule.model_dump() for rule in body.rules])
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {"rules": [rule.to_dict() for rule in rules]}
+
+
+@app.get("/v1/admin/site")
+async def admin_get_site(authorization: str | None = Header(default=None)) -> dict:
+    _require_admin(authorization)
+    return site_payload()
+
+
+@app.put("/v1/admin/site")
+async def admin_update_site(
+    body: SiteTextUpdateBody,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization)
+    try:
+        update_site_texts(body.texts)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return site_payload()
+
+
+@app.post("/v1/admin/site/image")
+async def admin_upload_site_image(
+    slot: str = Form(...),
+    image: UploadFile = File(...),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization)
+    suffix = Path(image.filename or "").suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+        raise HTTPException(status_code=415, detail="只接受 PNG、JPEG 或 WebP 图片。")
+    content = await image.read(5 * 1024 * 1024 + 1)
+    await image.close()
+    try:
+        save_site_image(slot, content)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return site_payload()
+
+
+@app.delete("/v1/admin/site/image/{slot}")
+async def admin_delete_site_image(
+    slot: str,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization)
+    try:
+        delete_site_image(slot)
+    except ValueError as error:
+        raise HTTPException(status_code=404, detail=str(error)) from error
+    return site_payload()

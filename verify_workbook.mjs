@@ -12,7 +12,7 @@ const input = await FileBlob.load(inputPath);
 const workbook = await SpreadsheetFile.importXlsx(input);
 const table = await workbook.inspect({
   kind: "table",
-  range: "发票报销填报表!A1:I8",
+  range: "发票报销填报表!A1:J6",
   include: "values,formulas",
   tableMaxRows: 10,
   tableMaxCols: 10,
@@ -29,7 +29,7 @@ console.log(errors.ndjson);
 
 const preview = await workbook.render({
   sheetName: "发票报销填报表",
-  range: "A1:I8",
+  range: "A1:J6",
   scale: 1.5,
   format: "png",
 });
