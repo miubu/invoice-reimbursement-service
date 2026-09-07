@@ -10,8 +10,11 @@
 .rule-list { display: grid; gap: 14px; }
 .rule-card { border: 1px solid var(--line); border-radius: 14px; padding: 18px; background: #fbfcfe; }
 .rule-title { display: flex; align-items: start; justify-content: space-between; gap: 18px; margin-bottom: 15px; }
+.rule-card-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .rule-title strong { display: block; font-size: 16px; }
 .rule-title p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.section-heading-actions { display: flex; align-items: center; gap: 12px; }
+.section-heading-actions .button { white-space: nowrap; }
 .toggle { display: flex; align-items: center; gap: 7px; color: var(--green); font-size: 12px; font-weight: 750; }
 .rule-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .rule-grid .wide { grid-column: 1 / -1; }
@@ -32,5 +35,6 @@
   .admin-shell { width: min(100% - 24px, 1120px); padding-top: 28px; }
   .admin-heading { align-items: start; flex-direction: column; gap: 8px; }
   .rule-grid, .site-text-grid, .image-manager { grid-template-columns: 1fr; }
+  .section-heading-actions { align-items: end; flex-direction: column; gap: 8px; }
   .rule-grid .wide, .site-text-grid .wide { grid-column: auto; }
 }

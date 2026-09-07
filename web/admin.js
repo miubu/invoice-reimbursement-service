@@ -78,7 +78,7 @@ function addRuleCard(rule = {}) {
   card.innerHTML = `
     <div class="rule-title">
       <div><strong>${isBuiltin ? "内置规则" : "自定义规则"}</strong><p>项目名称包含任一关键词时即命中；不支持 * 通配符。</p></div>
-      <div><label class="toggle"><input class="rule-enabled" type="checkbox" ${rule.enabled !== false ? "checked" : ""}> 启用</label>${isBuiltin ? "" : '<button class="text-button danger-button delete-rule" type="button">删除</button>'}</div>
+      <div class="rule-card-actions"><label class="toggle"><input class="rule-enabled" type="checkbox" ${rule.enabled !== false ? "checked" : ""}> 启用</label><button class="text-button save-rule" type="button">保存</button>${isBuiltin ? "" : '<button class="text-button danger-button delete-rule" type="button">删除</button>'}</div>
     </div>
     <div class="rule-grid">
       <label class="field"><span>规则名称 <b>*</b></span><input class="rule-name" maxlength="80" placeholder="例如：采购耗材"></label>
@@ -93,6 +93,7 @@ function addRuleCard(rule = {}) {
   card.querySelector(".rule-remark").value = rule.remark || "";
   card.querySelector(".rule-keywords").value = (rule.keywords || []).join("\n");
   card.querySelector(".rule-url").value = rule.template_url || "";
+  card.querySelector(".save-rule").addEventListener("click", () => saveRuleCard(card));
   card.querySelector(".delete-rule")?.addEventListener("click", () => deleteRule(card));
   ruleList.append(card);
 }
@@ -107,6 +108,18 @@ function rulePayload(card) {
     template_url: card.querySelector(".rule-url").value.trim(),
     enabled: card.querySelector(".rule-enabled").checked,
   };
+}
+
+async function saveRuleCard(card) {
+  const ruleId = card.dataset.ruleId;
+  const response = await adminFetch(ruleId ? `/v1/admin/rules/${encodeURIComponent(ruleId)}` : "/v1/admin/rules", {
+    method: ruleId ? "PUT" : "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(rulePayload(card)),
+  });
+  const payload = await response.json();
+  if (!ruleId && payload.rule?.id) card.dataset.ruleId = payload.rule.id;
+  showToast("这条规则已保存，新的发票识别立即生效。");
 }
 
 function renderSite(site) {
@@ -209,12 +222,7 @@ document.querySelector("#save-rules").addEventListener("click", async () => {
   try {
     const cards = [...document.querySelectorAll(".rule-card")];
     for (const card of cards) {
-      const ruleId = card.dataset.ruleId;
-      await adminFetch(ruleId ? `/v1/admin/rules/${encodeURIComponent(ruleId)}` : "/v1/admin/rules", {
-        method: ruleId ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(rulePayload(card)),
-      });
+      await saveRuleCard(card);
     }
     const response = await adminFetch("/v1/admin/rules");
     renderRules(await response.json());
