@@ -66,6 +66,14 @@ class RulePayload(BaseModel):
     enabled: bool = True
 
 
+class LegacyRulePayload(RulePayload):
+    id: str
+
+
+class LegacyRulesUpdateBody(BaseModel):
+    rules: list[LegacyRulePayload]
+
+
 class SiteTextUpdateBody(BaseModel):
     texts: dict[str, str]
 
@@ -437,6 +445,31 @@ async def admin_create_rule(
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return {"rule": rule.to_dict()}
+
+
+@app.put("/v1/admin/rules")
+async def admin_update_rules_legacy(
+    body: LegacyRulesUpdateBody,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    """兼容旧版管理页面的批量保存请求。"""
+    _require_admin(authorization)
+    current = {rule.id: rule for rule in get_rules()}
+    try:
+        for item in body.rules:
+            payload = item.model_dump(exclude={"id"})
+            # 旧页面没有提交名称和说明，保留数据库中的原值。
+            existing = current.get(item.id)
+            if existing:
+                payload["title"] = payload.get("title") or existing.title
+                payload["description"] = payload.get("description") or existing.description
+            update_rule(item.id, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {
+        "rules": [rule.to_dict() for rule in get_rules()],
+        "reimbursement_types": list(REIMBURSEMENT_TYPES),
+    }
 
 
 @app.put("/v1/admin/rules/{rule_id}")
