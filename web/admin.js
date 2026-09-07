@@ -86,16 +86,27 @@ function addRuleCard(rule = {}) {
       <label class="field wide"><span>规则说明（管理员可见）</span><textarea class="rule-description" maxlength="300" placeholder="说明这条规则在什么情况下使用"></textarea></label>
       <label class="field wide"><span>关键词（每行一个；项目名称包含任一项即命中）<b>*</b></span><textarea class="rule-keywords" maxlength="3100" placeholder="例如：物流服务费"></textarea></label>
       <label class="field"><span>备注提示</span><input class="rule-remark" maxlength="300"></label>
-      <label class="field wide"><span>说明模板链接（可为空）</span><input class="rule-url" type="url" maxlength="1000" placeholder="http:// 或 https://"></label>
+      <label class="field wide"><span>说明模板链接（可为空）</span><input class="rule-url" type="url" maxlength="1000" placeholder="http://、https:// 或站内文件链接"></label>
+      <label class="field wide"><span>上传说明文件（DOCX / PDF，最大 10 MB）</span><div class="rule-file-controls"><input class="rule-file-input" type="file" accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"><button class="text-button upload-rule-file" type="button">上传并使用</button><a class="text-button rule-file-link" target="_blank" rel="noreferrer" hidden>打开当前附件</a></div></label>
     </div>`;
   card.querySelector(".rule-name").value = rule.title || "";
   card.querySelector(".rule-description").value = rule.description || "";
   card.querySelector(".rule-remark").value = rule.remark || "";
   card.querySelector(".rule-keywords").value = (rule.keywords || []).join("\n");
   card.querySelector(".rule-url").value = rule.template_url || "";
+  card.querySelector(".rule-url").addEventListener("input", () => refreshRuleFileLink(card));
   card.querySelector(".save-rule").addEventListener("click", () => saveRuleCard(card));
+  card.querySelector(".upload-rule-file").addEventListener("click", () => uploadRuleFile(card));
   card.querySelector(".delete-rule")?.addEventListener("click", () => deleteRule(card));
+  refreshRuleFileLink(card);
   ruleList.append(card);
+}
+
+function refreshRuleFileLink(card) {
+  const url = card.querySelector(".rule-url").value.trim();
+  const link = card.querySelector(".rule-file-link");
+  link.hidden = !url;
+  if (url) link.href = url;
 }
 
 function rulePayload(card) {
@@ -120,6 +131,25 @@ async function saveRuleCard(card) {
   const payload = await response.json();
   if (!ruleId && payload.rule?.id) card.dataset.ruleId = payload.rule.id;
   showToast("这条规则已保存，新的发票识别立即生效。");
+}
+
+async function uploadRuleFile(card) {
+  const input = card.querySelector(".rule-file-input");
+  if (!input.files?.length) return showToast("请先选择 DOCX 或 PDF 说明文件。", true);
+  try {
+    if (!card.dataset.ruleId) await saveRuleCard(card);
+    const data = new FormData();
+    data.append("attachment", input.files[0], input.files[0].name);
+    const response = await adminFetch(`/v1/admin/rules/${encodeURIComponent(card.dataset.ruleId)}/file`, {
+      method: "POST",
+      body: data,
+    });
+    const payload = await response.json();
+    card.querySelector(".rule-url").value = payload.rule?.template_url || "";
+    refreshRuleFileLink(card);
+    input.value = "";
+    showToast("说明文件已上传，站内链接已自动保存到这条规则。");
+  } catch (error) { showToast(error.message, true); }
 }
 
 function renderSite(site) {

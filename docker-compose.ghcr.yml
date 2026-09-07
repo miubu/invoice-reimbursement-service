@@ -18,6 +18,7 @@ services:
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
       RULES_DB_PATH: "/data/invoice-service.db"
       SITE_ASSET_DIR: "/data/site-assets"
+      RULE_FILE_DIR: "/data/rule-files"
     security_opt:
       - no-new-privileges:true
     read_only: true

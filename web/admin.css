@@ -30,6 +30,9 @@
 .image-preview img { width: 100%; height: 100%; object-fit: contain; }
 .image-controls { display: flex; gap: 9px; align-items: center; margin-top: 13px; flex-wrap: wrap; }
 .image-controls input { max-width: 250px; font-size: 12px; }
+.rule-file-controls { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.rule-file-controls input { max-width: 360px; font-size: 12px; }
+.rule-file-link { text-decoration: none; }
 .danger-button { color: var(--red); background: var(--red-soft); }
 @media (max-width: 720px) {
   .admin-shell { width: min(100% - 24px, 1120px); padding-top: 28px; }
@@ -37,5 +40,7 @@
   .rule-grid, .site-text-grid, .image-manager { grid-template-columns: 1fr; }
   .rule-toolbar { align-items: stretch; flex-direction: column; }
   .rule-toolbar .button { width: 100%; }
+  .rule-file-controls { align-items: stretch; flex-direction: column; }
+  .rule-file-controls input, .rule-file-controls .text-button { max-width: none; width: 100%; }
   .rule-grid .wide, .site-text-grid .wide { grid-column: auto; }
 }

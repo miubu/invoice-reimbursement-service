@@ -35,7 +35,7 @@ DEFAULT_RULES: tuple[dict[str, Any], ...] = (
         "reimbursement_type": "快递邮寄",
         "keywords": ["物流服务费"],
         "remark": "请按照《快递报销说明模板》补充说明",
-        "template_url": "http://10.7.135.67:8080/externalLinksController/downloadFileByKey/4%E5%BF%AB%E9%80%92%E6%8A%A5%E9%94%80%E8%AF%B4%E6%98%8E%E6%A8%A1%E6%9D%BF.docx?dkey=c00cfe23-dde9-41c7-aa0b-236b56063372",
+        "template_url": "/rule-files/courier.docx",
         "enabled": True,
         "priority": 10,
     },
@@ -46,7 +46,7 @@ DEFAULT_RULES: tuple[dict[str, Any], ...] = (
         "reimbursement_type": "市内交通",
         "keywords": ["交通"],
         "remark": "请按照《交通费说明模板》补充说明",
-        "template_url": "http://10.7.135.67:8080/externalLinksController/downloadFileByKey/3%E4%BA%A4%E9%80%9A%E8%B4%B9%E8%AF%B4%E6%98%8E%E6%A8%A1%E6%9D%BF.docx?dkey=6caed1a8-bb42-4928-ab01-5ae60545f390",
+        "template_url": "/rule-files/transport.docx",
         "enabled": True,
         "priority": 20,
     },
@@ -57,7 +57,7 @@ DEFAULT_RULES: tuple[dict[str, Any], ...] = (
         "reimbursement_type": "",
         "keywords": ["线", "缆"],
         "remark": "请按照《连接线材与配电辅助配件说明模板》补充说明",
-        "template_url": "http://10.7.135.67:8080/externalLinksController/downloadFileByKey/5%E8%BF%9E%E6%8E%A5%E7%BA%BF%E6%9D%90%E4%B8%8E%E9%85%8D%E7%94%B5%E8%BE%85%E5%8A%A9%E9%85%8D%E4%BB%B6%E8%AF%B4%E6%98%8E%E6%A8%A1%E6%9D%BF.docx?dkey=ca9dd1ed-5fac-476f-bcec-6b7ca458f1b5",
+        "template_url": "/rule-files/cable.docx",
         "enabled": True,
         "priority": 30,
     },
@@ -180,6 +180,20 @@ def _connect(db_path: Path) -> sqlite3.Connection:
                 json.dumps(legacy, ensure_ascii=False),
             ),
         )
+    legacy_template_urls = {
+        "courier": "http://10.7.135.67:8080/externalLinksController/downloadFileByKey/4%E5%BF%AB%E9%80%92%E6%8A%A5%E9%94%80%E8%AF%B4%E6%98%8E%E6%A8%A1%E6%9D%BF.docx?dkey=c00cfe23-dde9-41c7-aa0b-236b56063372",
+        "transport": "http://10.7.135.67:8080/externalLinksController/downloadFileByKey/3%E4%BA%A4%E9%80%9A%E8%B4%B9%E8%AF%B4%E6%98%8E%E6%A8%A1%E6%9D%BF.docx?dkey=6caed1a8-bb42-4928-ab01-5ae60545f390",
+        "cable": "http://10.7.135.67:8080/externalLinksController/downloadFileByKey/5%E8%BF%9E%E6%8E%A5%E7%BA%BF%E6%9D%90%E4%B8%8E%E9%85%8D%E7%94%B5%E8%BE%85%E5%8A%A9%E9%85%8D%E4%BB%B6%E8%AF%B4%E6%98%8E%E6%A8%A1%E6%9D%BF.docx?dkey=ca9dd1ed-5fac-476f-bcec-6b7ca458f1b5",
+    }
+    for rule_id, legacy_url in legacy_template_urls.items():
+        connection.execute(
+            """
+            UPDATE reimbursement_rules
+            SET template_url = ?, updated_at = ?
+            WHERE id = ? AND template_url = ?
+            """,
+            (defaults_by_id[rule_id]["template_url"], now, rule_id, legacy_url),
+        )
     connection.commit()
     return connection
 
@@ -232,8 +246,8 @@ def _clean_rule_payload(payload: dict[str, Any]) -> dict[str, Any]:
     template_url = str(payload.get("template_url", "")).strip()
     if len(remark) > 300:
         raise ValueError("备注不能超过 300 个字符。")
-    if template_url and not template_url.startswith(("http://", "https://")):
-        raise ValueError("模板链接必须以 http:// 或 https:// 开头。")
+    if template_url and not template_url.startswith(("http://", "https://", "/rule-files/")):
+        raise ValueError("模板链接必须是 http(s) 链接或站内说明文件链接。")
     if len(template_url) > 1000:
         raise ValueError("模板链接不能超过 1000 个字符。")
     return {

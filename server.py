@@ -9,11 +9,12 @@ import re
 import secrets
 import tempfile
 from contextlib import asynccontextmanager, suppress
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -30,6 +31,7 @@ from reimbursement_rules import (
     normalize_reimbursement_type,
     update_rule,
 )
+from rule_files import download_name, resolve_rule_file, save_rule_file
 from site_settings import (
     ASSET_DIR,
     SITE_ASSET_SLOTS,
@@ -116,7 +118,7 @@ class JobLimiter:
 limiter = JobLimiter(MAX_CONCURRENT_JOBS, MAX_QUEUED_JOBS, QUEUE_TIMEOUT_SECONDS)
 app = FastAPI(
     title="电子发票报销填报服务",
-    version="3.1.0",
+    version="3.3.0",
     description="上传一个或多个电子发票 PDF/ZIP，预览票面原文字段并下载 Excel。金额合计不再核销。",
 )
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
@@ -242,6 +244,19 @@ def _serialize(
     }
 
 
+def _rules_with_public_urls(
+    rules: tuple[ReimbursementRule, ...],
+    request: Request,
+) -> tuple[ReimbursementRule, ...]:
+    base_url = str(request.base_url).rstrip("/")
+    return tuple(
+        replace(rule, template_url=f"{base_url}{rule.template_url}")
+        if rule.template_url.startswith("/")
+        else rule
+        for rule in rules
+    )
+
+
 def _review_is_confirmable(record) -> bool:
     return (
         record.needs_review
@@ -353,8 +368,27 @@ async def public_site_asset(filename: str) -> FileResponse:
     return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "no-cache"})
 
 
+@app.get("/rule-files/{filename}", include_in_schema=False)
+async def public_rule_file(filename: str) -> FileResponse:
+    path = resolve_rule_file(filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="说明文件不存在。")
+    media_type = (
+        "application/pdf"
+        if path.suffix.lower() == ".pdf"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=download_name(filename),
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
 @app.post("/v1/invoices/preview")
 async def preview_invoices(
+    request: Request,
     files: list[UploadFile] | None = File(default=None, description="一个或多个 PDF/ZIP"),
     file: UploadFile | None = File(default=None, description="兼容旧版单 ZIP 参数"),
     expected_total: str | None = Form(default=None, description="兼容旧版参数，服务不再核对金额合计"),
@@ -364,13 +398,14 @@ async def preview_invoices(
         fallback_type = normalize_reimbursement_type(reimbursement_type)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    rules = get_rules()
+    rules = _rules_with_public_urls(get_rules(), request)
     result = await _process_uploads(_collect_uploads(files, file))
     return JSONResponse(_serialize(result, fallback_type, rules))
 
 
 @app.post("/v1/invoices/export")
 async def export_invoices(
+    request: Request,
     files: list[UploadFile] | None = File(default=None, description="一个或多个 PDF/ZIP"),
     file: UploadFile | None = File(default=None, description="兼容旧版单 ZIP 参数"),
     expected_total: str | None = Form(default=None, description="兼容旧版参数，服务不再核对金额合计"),
@@ -386,7 +421,7 @@ async def export_invoices(
         fallback_type = normalize_reimbursement_type(reimbursement_type)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    rules = get_rules()
+    rules = _rules_with_public_urls(get_rules(), request)
     confirmed_ids = _parse_confirmed_review_ids(confirmed_review_ids)
     result = await _process_uploads(_collect_uploads(files, file))
     confirmable_ids = {
@@ -484,6 +519,30 @@ async def admin_update_rule(
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return {"rule": rule.to_dict()}
+
+
+@app.post("/v1/admin/rules/{rule_id}/file")
+async def admin_upload_rule_file(
+    rule_id: str,
+    attachment: UploadFile = File(...),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization)
+    existing = next((rule for rule in get_rules() if rule.id == rule_id), None)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="规则不存在或已被删除。")
+    content = await attachment.read(10 * 1024 * 1024 + 1)
+    await attachment.close()
+    try:
+        _, template_url = save_rule_file(rule_id, attachment.filename or "", content)
+        payload = existing.to_dict()
+        payload.pop("id", None)
+        payload.pop("priority", None)
+        payload["template_url"] = template_url
+        updated = update_rule(rule_id, payload)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {"rule": updated.to_dict()}
 
 
 @app.delete("/v1/admin/rules/{rule_id}")
