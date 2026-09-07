@@ -6,6 +6,7 @@ node_modules
 preview/
 .playwright-cli/
 output/
+tmp/
 *.xlsx
 *.db
 *.db-wal

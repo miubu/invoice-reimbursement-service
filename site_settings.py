@@ -26,6 +26,7 @@ SITE_TEXT_DEFAULTS: dict[str, str] = {
     "action_title": "先预览，再导出",
     "action_description": "预览会显示每张发票的票面原文字段和校验状态。",
     "preview_button": "识别并预览",
+    "print_button": "一键打印全部发票及说明",
     "export_button": "下载 Excel",
 }
 SITE_ASSET_SLOTS = {"logo", "hero"}

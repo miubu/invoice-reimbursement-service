@@ -20,7 +20,7 @@ RUN mkdir -p /data && chown invoice:invoice /data
 COPY requirements.txt ./
 RUN python -m pip install --upgrade pip && python -m pip install -r requirements.txt
 
-COPY archive_reader.py excel_writer.py invoice_reader.py processing.py validator.py reimbursement_rules.py rule_files.py site_settings.py server.py ./
+COPY archive_reader.py excel_writer.py invoice_reader.py processing.py print_bundle.py validator.py reimbursement_rules.py rule_files.py site_settings.py server.py ./
 COPY web ./web
 COPY builtin_rule_files ./builtin_rule_files
 

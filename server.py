@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from excel_writer import ReimbursementProfile, build_excel_bytes
+from print_bundle import build_print_pdf
 from processing import ProcessingResult, process_inputs
 from reimbursement_rules import (
     REIMBURSEMENT_TYPES,
@@ -118,8 +119,8 @@ class JobLimiter:
 limiter = JobLimiter(MAX_CONCURRENT_JOBS, MAX_QUEUED_JOBS, QUEUE_TIMEOUT_SECONDS)
 app = FastAPI(
     title="电子发票报销填报服务",
-    version="3.3.0",
-    description="上传一个或多个电子发票 PDF/ZIP，预览票面原文字段并下载 Excel。金额合计不再核销。",
+    version="3.4.0",
+    description="上传一个或多个电子发票 PDF/ZIP，预览票面原文字段、下载 Excel，或合并发票和说明文件后一键打印。金额合计不再核销。",
 )
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
@@ -457,6 +458,54 @@ async def export_invoices(
         content=workbook,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": disposition},
+    )
+
+
+@app.post("/v1/invoices/print")
+async def print_invoices(
+    files: list[UploadFile] | None = File(default=None, description="一个或多个 PDF/ZIP"),
+    file: UploadFile | None = File(default=None, description="兼容旧版单 ZIP 参数"),
+    reimbursement_type: str = Form(default="材料费"),
+) -> Response:
+    try:
+        fallback_type = normalize_reimbursement_type(reimbursement_type)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+    rules = get_rules()
+    uploads = _collect_uploads(files, file)
+    async with limiter.slot():
+        with tempfile.TemporaryDirectory(prefix="invoice_service_print_") as temporary:
+            input_paths = await _save_uploads(uploads, Path(temporary))
+            try:
+                result = await asyncio.to_thread(
+                    process_inputs,
+                    input_paths,
+                    max_pdf_count=MAX_PDF_COUNT,
+                    max_uncompressed_bytes=MAX_UNCOMPRESSED_BYTES,
+                    max_compression_ratio=MAX_COMPRESSION_RATIO,
+                )
+                printable_pdf = await asyncio.to_thread(
+                    build_print_pdf,
+                    input_paths,
+                    result.records,
+                    fallback_type,
+                    rules,
+                    max_pdf_count=MAX_PDF_COUNT,
+                    max_uncompressed_bytes=MAX_UNCOMPRESSED_BYTES,
+                    max_compression_ratio=MAX_COMPRESSION_RATIO,
+                )
+            except HTTPException:
+                raise
+            except Exception as error:
+                raise HTTPException(status_code=422, detail=f"打印文件生成失败：{error}") from error
+
+    filename = "发票及报销说明.pdf"
+    disposition = f"inline; filename=invoices-and-notes.pdf; filename*=UTF-8''{quote(filename)}"
+    return Response(
+        content=printable_pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": disposition, "Cache-Control": "no-store"},
     )
 
 

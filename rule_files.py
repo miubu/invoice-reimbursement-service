@@ -4,7 +4,7 @@ import os
 import re
 import tempfile
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlsplit
 
 
 BUILTIN_RULE_FILE_DIR = Path(__file__).resolve().parent / "builtin_rule_files"
@@ -15,8 +15,11 @@ MAX_RULE_FILE_BYTES = 10 * 1024 * 1024
 ALLOWED_RULE_FILE_SUFFIXES = {".docx", ".pdf"}
 BUILTIN_DOWNLOAD_NAMES = {
     "courier.docx": "4快递报销说明模板.docx",
+    "courier.pdf": "4快递报销说明模板.pdf",
     "transport.docx": "3交通费说明模板.docx",
+    "transport.pdf": "3交通费说明模板.pdf",
     "cable.docx": "5连接线材与配电辅助配件说明模板.docx",
+    "cable.pdf": "5连接线材与配电辅助配件说明模板.pdf",
 }
 
 
@@ -63,6 +66,25 @@ def resolve_rule_file(filename: str) -> Path | None:
         candidate = directory / filename
         if candidate.is_file():
             return candidate
+    return None
+
+
+def resolve_printable_rule_file(template_url: str) -> Path | None:
+    """把站内说明链接解析为可合并打印的 PDF。"""
+    path = urlsplit(template_url.strip()).path
+    if not path.startswith("/rule-files/"):
+        return None
+    filename = unquote(path.removeprefix("/rule-files/"))
+    source = resolve_rule_file(filename)
+    if source is None:
+        return None
+    if source.suffix.lower() == ".pdf":
+        return source
+
+    # 三个内置 Word 模板在构建镜像前已经转成 PDF，Docker 运行时无需 LibreOffice。
+    companion = BUILTIN_RULE_FILE_DIR / f"{source.stem}.pdf"
+    if source.parent == BUILTIN_RULE_FILE_DIR and companion.is_file():
+        return companion
     return None
 
 

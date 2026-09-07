@@ -5,6 +5,7 @@ const fileList = document.querySelector("#file-list");
 const fileEmpty = document.querySelector("#file-empty");
 const previewButton = document.querySelector("#preview-button");
 const exportButton = document.querySelector("#export-button");
+const printButton = document.querySelector("#print-button");
 const resultPanel = document.querySelector("#result-panel");
 const resultBadge = document.querySelector("#result-badge");
 const resultBody = document.querySelector("#result-body");
@@ -50,6 +51,7 @@ function invalidatePreview() {
   previewData = null;
   confirmedReviewIds.clear();
   exportButton.disabled = true;
+  printButton.disabled = true;
 }
 
 function addFiles(files) {
@@ -250,8 +252,10 @@ function updateExportState() {
   if (!previewData) {
     previewValid = false;
     exportButton.disabled = true;
+    printButton.disabled = true;
     return;
   }
+  printButton.disabled = false;
   const pending = (previewData.records || []).filter(record => (
     record.needs_review && !confirmedReviewIds.has(record.record_id)
   ));
@@ -321,6 +325,56 @@ async function exportInvoices() {
   }
 }
 
+async function printInvoices() {
+  if (!previewData || !validateBeforeRequest(false)) return;
+
+  // 在点击事件中先创建窗口，避免异步生成 PDF 后被浏览器当作弹窗拦截。
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    showToast("浏览器拦截了打印窗口，请允许本站弹出窗口后重试。", true);
+    return;
+  }
+  printWindow.document.title = "正在准备打印文件";
+  printWindow.document.body.textContent = "正在合并发票与对应说明文件，请稍候……";
+
+  printButton.disabled = true;
+  printButton.classList.add("loading");
+  try {
+    const response = await fetch("/v1/invoices/print", {
+      method: "POST",
+      body: buildFormData(false),
+    });
+    if (!response.ok) throw new Error(await parseError(response));
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    let printTriggered = false;
+    const triggerPrint = () => {
+      if (printTriggered || printWindow.closed) return;
+      printTriggered = true;
+      try {
+        printWindow.focus();
+        printWindow.print();
+      } catch {
+        showToast("打印文件已打开，请使用浏览器中的打印按钮。", false);
+      }
+    };
+    printWindow.onload = () => {
+      window.setTimeout(triggerPrint, 900);
+    };
+    printWindow.location.replace(url);
+    // 部分浏览器的内置 PDF 查看器不会触发普通页面的 load 事件。
+    window.setTimeout(triggerPrint, 2500);
+    window.setTimeout(() => URL.revokeObjectURL(url), 60000);
+    showToast("已合并全部发票和对应说明，正在打开打印窗口。", false);
+  } catch (error) {
+    printWindow.close();
+    showToast(error.message || "打印文件生成失败。", true);
+  } finally {
+    printButton.disabled = !previewData;
+    printButton.classList.remove("loading");
+  }
+}
+
 function saveProfile() {
   const profile = {
     claimant: fields.claimant.value.trim(),
@@ -365,6 +419,7 @@ async function loadSiteSettings() {
       action_title: "#action-title",
       action_description: "#action-description",
       preview_button: "#preview-button-text",
+      print_button: "#print-button-text",
       export_button: "#export-button-text",
     };
     Object.entries(textTargets).forEach(([key, selector]) => {
@@ -412,6 +467,7 @@ dropZone.addEventListener("keydown", event => {
 dropZone.addEventListener("drop", event => addFiles(event.dataTransfer.files));
 form.addEventListener("submit", previewInvoices);
 exportButton.addEventListener("click", exportInvoices);
+printButton.addEventListener("click", printInvoices);
 document.querySelector("#save-profile").addEventListener("click", saveProfile);
 document.querySelector("#clear-profile").addEventListener("click", () => {
   localStorage.removeItem(profileKey);

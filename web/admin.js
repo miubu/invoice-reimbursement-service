@@ -27,6 +27,7 @@ const siteLabels = {
   action_description: "操作区说明",
   preview_button: "预览按钮",
   export_button: "导出按钮",
+  print_button: "打印按钮",
 };
 
 function showToast(message, isError = false) {
@@ -87,7 +88,7 @@ function addRuleCard(rule = {}) {
       <label class="field wide"><span>关键词（每行一个；项目名称包含任一项即命中）<b>*</b></span><textarea class="rule-keywords" maxlength="3100" placeholder="例如：物流服务费"></textarea></label>
       <label class="field"><span>备注提示</span><input class="rule-remark" maxlength="300"></label>
       <label class="field wide"><span>说明模板链接（可为空）</span><input class="rule-url" type="url" maxlength="1000" placeholder="http://、https:// 或站内文件链接"></label>
-      <label class="field wide"><span>上传说明文件（DOCX / PDF，最大 10 MB）</span><div class="rule-file-controls"><input class="rule-file-input" type="file" accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"><button class="text-button upload-rule-file" type="button">上传并使用</button><a class="text-button rule-file-link" target="_blank" rel="noreferrer" hidden>打开当前附件</a></div></label>
+      <label class="field wide"><span>上传说明文件（DOCX / PDF，最大 10 MB；需一键打印时请上传 PDF）</span><div class="rule-file-controls"><input class="rule-file-input" type="file" accept=".docx,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"><button class="text-button upload-rule-file" type="button">上传并使用</button><a class="text-button rule-file-link" target="_blank" rel="noreferrer" hidden>打开当前附件</a></div></label>
     </div>`;
   card.querySelector(".rule-name").value = rule.title || "";
   card.querySelector(".rule-description").value = rule.description || "";

@@ -6,7 +6,7 @@
   <meta name="description" content="上传电子发票 PDF 或 ZIP，核对票面字段并生成报销 Excel。">
   <title>电子发票报销填报</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/styles.css?v=3.3.0">
+  <link rel="stylesheet" href="/assets/styles.css?v=3.4.0">
 </head>
 <body>
   <header class="topbar">
@@ -152,14 +152,19 @@
       </div>
       <div class="result-actions">
         <span>请核对上方所有发票项目；存在待人工核对时，请先完成确认。</span>
-        <button id="export-button" class="button primary" type="button" disabled>
-          <span id="export-button-text">下载 Excel</span>
-        </button>
+        <div class="result-button-row">
+          <button id="print-button" class="button print" type="button" disabled>
+            <span id="print-button-text">一键打印全部发票及说明</span>
+          </button>
+          <button id="export-button" class="button primary" type="button" disabled>
+            <span id="export-button-text">下载 Excel</span>
+          </button>
+        </div>
       </div>
     </section>
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/assets/app.js?v=3.3.0" defer></script>
+  <script src="/assets/app.js?v=3.4.0" defer></script>
 </body>
 </html>
