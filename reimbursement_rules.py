@@ -5,6 +5,7 @@ import os
 import re
 import sqlite3
 import tempfile
+import uuid
 from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -32,7 +33,7 @@ DEFAULT_RULES: tuple[dict[str, Any], ...] = (
         "title": "快递邮寄",
         "description": "命中后自动将报销类型设为“快递邮寄”，并提示补充快递说明。",
         "reimbursement_type": "快递邮寄",
-        "keywords": ["*物流辅助服务*物流服务费"],
+        "keywords": ["物流服务费"],
         "remark": "请按照《快递报销说明模板》补充说明",
         "template_url": "http://10.7.135.67:8080/externalLinksController/downloadFileByKey/4%E5%BF%AB%E9%80%92%E6%8A%A5%E9%94%80%E8%AF%B4%E6%98%8E%E6%A8%A1%E6%9D%BF.docx?dkey=c00cfe23-dde9-41c7-aa0b-236b56063372",
         "enabled": True,
@@ -43,7 +44,7 @@ DEFAULT_RULES: tuple[dict[str, Any], ...] = (
         "title": "市内交通",
         "description": "命中后自动将报销类型设为“市内交通”，并提示补充交通费说明。",
         "reimbursement_type": "市内交通",
-        "keywords": ["*交通*"],
+        "keywords": ["交通"],
         "remark": "请按照《交通费说明模板》补充说明",
         "template_url": "http://10.7.135.67:8080/externalLinksController/downloadFileByKey/3%E4%BA%A4%E9%80%9A%E8%B4%B9%E8%AF%B4%E6%98%8E%E6%A8%A1%E6%9D%BF.docx?dkey=6caed1a8-bb42-4928-ab01-5ae60545f390",
         "enabled": True,
@@ -109,13 +110,9 @@ def normalize_reimbursement_type(value: str) -> str:
 
 
 def _keyword_matches(keyword: str, compact_item: str) -> bool:
-    compact_keyword = re.sub(r"\s+", "", keyword)
-    if not compact_keyword:
-        return False
-    if "*" not in compact_keyword:
-        return compact_keyword in compact_item
-    wildcard_pattern = re.escape(compact_keyword).replace(r"\*", ".*")
-    return re.search(wildcard_pattern, compact_item) is not None
+    """只按票面项目名称做普通的“包含关键词”匹配，不使用通配符或猜测。"""
+    keyword = keyword.strip()
+    return bool(keyword) and keyword in (compact_item or "")
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -162,6 +159,27 @@ def _connect(db_path: Path) -> sqlite3.Connection:
                 now,
             ),
         )
+    # 将早期版本中带 * 通配符的内置关键词安全迁移为普通“包含”关键词。
+    # 仅当管理员从未修改过该条旧规则时才替换，避免覆盖人工配置。
+    legacy_keywords = {
+        "courier": ["*物流辅助服务*物流服务费"],
+        "transport": ["*交通*"],
+    }
+    defaults_by_id = {rule["id"]: rule for rule in DEFAULT_RULES}
+    for rule_id, legacy in legacy_keywords.items():
+        connection.execute(
+            """
+            UPDATE reimbursement_rules
+            SET keywords_json = ?, updated_at = ?
+            WHERE id = ? AND keywords_json = ?
+            """,
+            (
+                json.dumps(defaults_by_id[rule_id]["keywords"], ensure_ascii=False),
+                now,
+                rule_id,
+                json.dumps(legacy, ensure_ascii=False),
+            ),
+        )
     connection.commit()
     return connection
 
@@ -187,63 +205,95 @@ def get_rules(db_path: Path = RULES_DB_PATH) -> tuple[ReimbursementRule, ...]:
     )
 
 
-def update_rules(
-    updates: list[dict[str, Any]],
-    db_path: Path = RULES_DB_PATH,
-) -> tuple[ReimbursementRule, ...]:
-    allowed_ids = {rule["id"] for rule in DEFAULT_RULES}
-    received_ids = {str(update.get("id", "")) for update in updates}
-    if received_ids != allowed_ids or len(updates) != len(allowed_ids):
-        raise ValueError("必须完整提交全部内置规则，且规则编号不能修改。")
+def _clean_rule_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    title = str(payload.get("title", "")).strip()
+    description = str(payload.get("description", "")).strip()
+    if not title:
+        raise ValueError("请填写规则名称。")
+    if len(title) > 80 or len(description) > 300:
+        raise ValueError("规则名称不能超过 80 个字符，规则说明不能超过 300 个字符。")
 
+    reimbursement_type = str(payload.get("reimbursement_type", "")).strip()
+    if reimbursement_type:
+        reimbursement_type = normalize_reimbursement_type(reimbursement_type)
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for raw_keyword in payload.get("keywords", []):
+        keyword = str(raw_keyword).strip()
+        if keyword and keyword not in seen:
+            keywords.append(keyword)
+            seen.add(keyword)
+    if not keywords:
+        raise ValueError("请至少填写一个关键词。")
+    if len(keywords) > 30 or any(len(keyword) > 100 for keyword in keywords):
+        raise ValueError("关键词数量不能超过 30 个，单个关键词不能超过 100 个字符。")
+
+    remark = str(payload.get("remark", "")).strip()
+    template_url = str(payload.get("template_url", "")).strip()
+    if len(remark) > 300:
+        raise ValueError("备注不能超过 300 个字符。")
+    if template_url and not template_url.startswith(("http://", "https://")):
+        raise ValueError("模板链接必须以 http:// 或 https:// 开头。")
+    if len(template_url) > 1000:
+        raise ValueError("模板链接不能超过 1000 个字符。")
+    return {
+        "title": title,
+        "description": description,
+        "reimbursement_type": reimbursement_type,
+        "keywords": keywords,
+        "remark": remark,
+        "template_url": template_url,
+        "enabled": bool(payload.get("enabled", True)),
+    }
+
+
+def create_rule(payload: dict[str, Any], db_path: Path = RULES_DB_PATH) -> ReimbursementRule:
+    cleaned = _clean_rule_payload(payload)
+    rule_id = f"custom-{uuid.uuid4().hex}"
     now = datetime.now(timezone.utc).isoformat()
     with closing(_connect(db_path)) as connection:
-        connection.execute("BEGIN IMMEDIATE")
-        for update in updates:
-            rule_id = str(update["id"])
-            reimbursement_type = str(update.get("reimbursement_type", "")).strip()
-            if reimbursement_type:
-                reimbursement_type = normalize_reimbursement_type(reimbursement_type)
-            keywords = []
-            seen: set[str] = set()
-            for raw_keyword in update.get("keywords", []):
-                keyword = str(raw_keyword).strip()
-                if keyword and keyword not in seen:
-                    keywords.append(keyword)
-                    seen.add(keyword)
-            if not keywords:
-                raise ValueError(f"{rule_id} 至少需要一个关键词。")
-            if len(keywords) > 30 or any(len(keyword) > 100 for keyword in keywords):
-                raise ValueError(f"{rule_id} 的关键词数量或长度超过限制。")
-
-            remark = str(update.get("remark", "")).strip()
-            template_url = str(update.get("template_url", "")).strip()
-            if len(remark) > 300:
-                raise ValueError(f"{rule_id} 的备注不能超过 300 个字符。")
-            if template_url and not template_url.startswith(("http://", "https://")):
-                raise ValueError(f"{rule_id} 的模板链接必须以 http:// 或 https:// 开头。")
-            if len(template_url) > 1000:
-                raise ValueError(f"{rule_id} 的模板链接过长。")
-
-            connection.execute(
-                """
-                UPDATE reimbursement_rules
-                SET reimbursement_type = ?, keywords_json = ?, remark = ?,
-                    template_url = ?, enabled = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (
-                    reimbursement_type,
-                    json.dumps(keywords, ensure_ascii=False),
-                    remark,
-                    template_url,
-                    int(bool(update.get("enabled", True))),
-                    now,
-                    rule_id,
-                ),
-            )
+        priority = int(connection.execute("SELECT COALESCE(MAX(priority), 0) + 10 FROM reimbursement_rules").fetchone()[0])
+        connection.execute(
+            """INSERT INTO reimbursement_rules
+            (id, title, description, reimbursement_type, keywords_json, remark,
+             template_url, enabled, priority, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (rule_id, cleaned["title"], cleaned["description"], cleaned["reimbursement_type"],
+             json.dumps(cleaned["keywords"], ensure_ascii=False), cleaned["remark"],
+             cleaned["template_url"], int(cleaned["enabled"]), priority, now),
+        )
         connection.commit()
-    return get_rules(db_path)
+    return next(rule for rule in get_rules(db_path) if rule.id == rule_id)
+
+
+def update_rule(rule_id: str, payload: dict[str, Any], db_path: Path = RULES_DB_PATH) -> ReimbursementRule:
+    cleaned = _clean_rule_payload(payload)
+    now = datetime.now(timezone.utc).isoformat()
+    with closing(_connect(db_path)) as connection:
+        cursor = connection.execute(
+            """UPDATE reimbursement_rules
+            SET title = ?, description = ?, reimbursement_type = ?, keywords_json = ?,
+                remark = ?, template_url = ?, enabled = ?, updated_at = ?
+            WHERE id = ?""",
+            (cleaned["title"], cleaned["description"], cleaned["reimbursement_type"],
+             json.dumps(cleaned["keywords"], ensure_ascii=False), cleaned["remark"],
+             cleaned["template_url"], int(cleaned["enabled"]), now, rule_id),
+        )
+        if cursor.rowcount != 1:
+            raise ValueError("规则不存在或已被删除。")
+        connection.commit()
+    return next(rule for rule in get_rules(db_path) if rule.id == rule_id)
+
+
+def delete_rule(rule_id: str, db_path: Path = RULES_DB_PATH) -> None:
+    default_ids = {rule["id"] for rule in DEFAULT_RULES}
+    if rule_id in default_ids:
+        raise ValueError("内置规则不能删除；如不需要，请关闭“启用”。")
+    with closing(_connect(db_path)) as connection:
+        cursor = connection.execute("DELETE FROM reimbursement_rules WHERE id = ?", (rule_id,))
+        if cursor.rowcount != 1:
+            raise ValueError("规则不存在或已被删除。")
+        connection.commit()
 
 
 def classify_reimbursement(
@@ -252,7 +302,6 @@ def classify_reimbursement(
     rules: tuple[ReimbursementRule, ...] | None = None,
 ) -> ClassificationResult:
     reimbursement_type = normalize_reimbursement_type(fallback_type)
-    compact_item = re.sub(r"\s+", "", item_name or "")
     remarks: list[str] = []
     template_urls: list[str] = []
     matched_rule_ids: list[str] = []
@@ -261,7 +310,7 @@ def classify_reimbursement(
     for rule in rules or get_rules():
         if not rule.enabled:
             continue
-        matched = any(_keyword_matches(keyword, compact_item) for keyword in rule.keywords)
+        matched = any(_keyword_matches(keyword, item_name) for keyword in rule.keywords)
         if not matched:
             continue
 

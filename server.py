@@ -10,7 +10,6 @@ import secrets
 import tempfile
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import quote
 
@@ -25,9 +24,11 @@ from reimbursement_rules import (
     REIMBURSEMENT_TYPES,
     ReimbursementRule,
     classify_reimbursement,
+    create_rule,
+    delete_rule,
     get_rules,
     normalize_reimbursement_type,
-    update_rules,
+    update_rule,
 )
 from site_settings import (
     ASSET_DIR,
@@ -55,17 +56,14 @@ CONFIRMABLE_REVIEW_REASON = re.compile(
 )
 
 
-class RuleUpdate(BaseModel):
-    id: str
+class RulePayload(BaseModel):
+    title: str = ""
+    description: str = ""
     reimbursement_type: str = ""
     keywords: list[str] = Field(default_factory=list)
     remark: str = ""
     template_url: str = ""
     enabled: bool = True
-
-
-class RulesUpdateBody(BaseModel):
-    rules: list[RuleUpdate]
 
 
 class SiteTextUpdateBody(BaseModel):
@@ -111,7 +109,7 @@ limiter = JobLimiter(MAX_CONCURRENT_JOBS, MAX_QUEUED_JOBS, QUEUE_TIMEOUT_SECONDS
 app = FastAPI(
     title="电子发票报销填报服务",
     version="3.1.0",
-    description="上传一个或多个电子发票 PDF/ZIP，预览票面原文字段并下载校验后的 Excel。",
+    description="上传一个或多个电子发票 PDF/ZIP，预览票面原文字段并下载 Excel。金额合计不再核销。",
 )
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
@@ -187,18 +185,6 @@ async def _save_uploads(uploads: list[UploadFile], directory: Path) -> list[Path
     return targets
 
 
-def _parse_total(value: str | None) -> Decimal | None:
-    if value is None or not value.strip():
-        return None
-    try:
-        total = Decimal(value.strip()).quantize(Decimal("0.01"))
-    except InvalidOperation as error:
-        raise HTTPException(status_code=422, detail="预期总金额必须是有效金额。") from error
-    if total < 0:
-        raise HTTPException(status_code=422, detail="预期总金额不能为负数。")
-    return total
-
-
 def _serialize(
     result: ProcessingResult,
     fallback_type: str,
@@ -238,13 +224,11 @@ def _serialize(
         "expected_count": summary.expected_count,
         "non_pdf_entries": list(summary.non_pdf_entries),
         "amount_total": f"{validation.total:.2f}" if validation.total is not None else None,
-        "expected_total": f"{summary.expected_total:.2f}" if summary.expected_total is not None else None,
         "errors": list(validation.errors),
         "review_files": unresolved_review_files,
         "can_export": (
             not validation.errors
             and not unresolved_review_files
-            and summary.expected_total is not None
         ),
         "records": records,
     }
@@ -282,8 +266,7 @@ def _collect_uploads(files: list[UploadFile] | None, file: UploadFile | None) ->
     return uploads
 
 
-async def _process_uploads(uploads: list[UploadFile], expected_total: str | None) -> ProcessingResult:
-    parsed_total = _parse_total(expected_total)
+async def _process_uploads(uploads: list[UploadFile]) -> ProcessingResult:
     async with limiter.slot():
         with tempfile.TemporaryDirectory(prefix="invoice_service_request_") as temporary:
             input_paths = await _save_uploads(uploads, Path(temporary))
@@ -291,7 +274,6 @@ async def _process_uploads(uploads: list[UploadFile], expected_total: str | None
                 return await asyncio.to_thread(
                     process_inputs,
                     input_paths,
-                    expected_total=parsed_total,
                     max_pdf_count=MAX_PDF_COUNT,
                     max_uncompressed_bytes=MAX_UNCOMPRESSED_BYTES,
                     max_compression_ratio=MAX_COMPRESSION_RATIO,
@@ -367,7 +349,7 @@ async def public_site_asset(filename: str) -> FileResponse:
 async def preview_invoices(
     files: list[UploadFile] | None = File(default=None, description="一个或多个 PDF/ZIP"),
     file: UploadFile | None = File(default=None, description="兼容旧版单 ZIP 参数"),
-    expected_total: str | None = Form(default=None),
+    expected_total: str | None = Form(default=None, description="兼容旧版参数，服务不再核对金额合计"),
     reimbursement_type: str = Form(default="材料费"),
 ) -> JSONResponse:
     try:
@@ -375,7 +357,7 @@ async def preview_invoices(
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     rules = get_rules()
-    result = await _process_uploads(_collect_uploads(files, file), expected_total)
+    result = await _process_uploads(_collect_uploads(files, file))
     return JSONResponse(_serialize(result, fallback_type, rules))
 
 
@@ -383,7 +365,7 @@ async def preview_invoices(
 async def export_invoices(
     files: list[UploadFile] | None = File(default=None, description="一个或多个 PDF/ZIP"),
     file: UploadFile | None = File(default=None, description="兼容旧版单 ZIP 参数"),
-    expected_total: str | None = Form(default=None),
+    expected_total: str | None = Form(default=None, description="兼容旧版参数，服务不再核对金额合计"),
     claimant: str = Form(default=""),
     student_id: str = Form(default=""),
     reimbursement_type: str = Form(default="材料费"),
@@ -398,7 +380,7 @@ async def export_invoices(
         raise HTTPException(status_code=422, detail=str(error)) from error
     rules = get_rules()
     confirmed_ids = _parse_confirmed_review_ids(confirmed_review_ids)
-    result = await _process_uploads(_collect_uploads(files, file), expected_total)
+    result = await _process_uploads(_collect_uploads(files, file))
     confirmable_ids = {
         f"invoice-{index:03d}"
         for index, record in enumerate(result.records, start=1)
@@ -407,13 +389,8 @@ async def export_invoices(
     if not confirmed_ids.issubset(confirmable_ids):
         raise HTTPException(status_code=422, detail="发票内容已变化或确认记录无效，请重新预览并核对。")
     payload = _serialize(result, fallback_type, rules, confirmed_ids)
-    if result.summary.expected_total is None:
-        raise HTTPException(
-            status_code=422,
-            detail={"message": "请填写预期总金额，用于与所有发票价税合计核对。", **payload},
-        )
     if not payload["can_export"]:
-        raise HTTPException(status_code=422, detail={"message": "校验未通过，未生成 Excel。", **payload})
+        raise HTTPException(status_code=422, detail={"message": "仍有需要人工核对的票面字段，未生成 Excel。", **payload})
 
     parsed_date = _parse_date(_required_text(fill_date, "填报日期", 10))
     profile = ReimbursementProfile(
@@ -449,17 +426,44 @@ async def admin_get_rules(authorization: str | None = Header(default=None)) -> d
     }
 
 
-@app.put("/v1/admin/rules")
-async def admin_update_rules(
-    body: RulesUpdateBody,
+@app.post("/v1/admin/rules")
+async def admin_create_rule(
+    body: RulePayload,
     authorization: str | None = Header(default=None),
 ) -> dict:
     _require_admin(authorization)
     try:
-        rules = update_rules([rule.model_dump() for rule in body.rules])
+        rule = create_rule(body.model_dump())
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    return {"rules": [rule.to_dict() for rule in rules]}
+    return {"rule": rule.to_dict()}
+
+
+@app.put("/v1/admin/rules/{rule_id}")
+async def admin_update_rule(
+    rule_id: str,
+    body: RulePayload,
+    authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization)
+    try:
+        rule = update_rule(rule_id, body.model_dump())
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return {"rule": rule.to_dict()}
+
+
+@app.delete("/v1/admin/rules/{rule_id}")
+async def admin_delete_rule(
+    rule_id: str,
+    authorization: str | None = Header(default=None),
+) -> Response:
+    _require_admin(authorization)
+    try:
+        delete_rule(rule_id)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return Response(status_code=204)
 
 
 @app.get("/v1/admin/site")

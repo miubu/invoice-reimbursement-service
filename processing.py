@@ -14,7 +14,6 @@ from validator import ValidationResult, validate
 
 
 COUNT_RE = re.compile(r"共\s*(\d+)\s*张")
-TOTAL_RE = re.compile(r"总金额\s*(\d+(?:\.\d+)?)\s*元")
 
 
 @dataclass(frozen=True)
@@ -38,11 +37,6 @@ class ProcessingResult:
 def _declared_count(filename: str) -> int | None:
     match = COUNT_RE.search(filename)
     return int(match.group(1)) if match else None
-
-
-def _declared_total(filename: str) -> Decimal | None:
-    match = TOTAL_RE.search(filename)
-    return Decimal(match.group(1)) if match else None
 
 
 def _split_pdf_pages(source: Path, destination: Path) -> tuple[list[Path], bool]:
@@ -85,7 +79,6 @@ def process_inputs(
     non_pdf_entries: list[str] = []
     pdf_sources: list[Path] = []
     declared_counts: list[int | None] = []
-    declared_totals: list[Decimal | None] = []
     uploaded_pdf_count = 0
     archive_count = 0
     uncompressed_total = 0
@@ -95,7 +88,6 @@ def process_inputs(
         for source_index, path in enumerate(input_paths, start=1):
             suffix = path.suffix.lower()
             declared_counts.append(_declared_count(path.name))
-            declared_totals.append(_declared_total(path.name))
 
             if suffix == ".zip":
                 archive_count += 1
@@ -140,20 +132,12 @@ def process_inputs(
     if len(input_paths) == 1 and declared_counts[0] is not None:
         inferred_count = declared_counts[0]
 
-    inferred_total: Decimal | None = expected_total
-    if inferred_total is None and declared_totals and all(
-        total is not None for total in declared_totals
-    ):
-        inferred_total = sum(
-            (total for total in declared_totals if total is not None),
-            Decimal("0.00"),
-        )
-
     summary = BatchSummary(
         source_names=source_names,
         non_pdf_entries=tuple(non_pdf_entries),
         expected_count=inferred_count,
-        expected_total=inferred_total,
+        # 金额仅保留为票面展示字段，不再从文件名或表单推断/核销合计。
+        expected_total=None,
         uploaded_pdf_count=uploaded_pdf_count,
         archive_count=archive_count,
         split_pdf_names=tuple(split_pdf_names),

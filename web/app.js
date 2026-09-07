@@ -20,7 +20,6 @@ const fields = {
   fill_date: document.querySelector("#fill-date"),
   reimbursement_type: document.querySelector("#reimbursement-type"),
   transmit_invoice: document.querySelector("#transmit-invoice"),
-  expected_total: document.querySelector("#expected-total"),
 };
 const profileKey = "invoice-reimbursement-profile-v1";
 let selectedFiles = [];
@@ -111,11 +110,10 @@ function renderFiles() {
 function buildFormData(includeProfile = false) {
   const data = new FormData();
   selectedFiles.forEach(file => data.append("files", file, file.name));
-  if (fields.expected_total.value.trim()) data.append("expected_total", fields.expected_total.value.trim());
   data.append("reimbursement_type", fields.reimbursement_type.value);
   if (includeProfile) {
     Object.entries(fields).forEach(([name, input]) => {
-      if (name !== "expected_total" && name !== "reimbursement_type") data.append(name, input.value.trim());
+      if (name !== "reimbursement_type") data.append(name, input.value.trim());
     });
     data.append("confirmed_review_ids", JSON.stringify([...confirmedReviewIds]));
   }
@@ -171,13 +169,9 @@ function renderResult(data) {
   addSummaryCard("上传文件", `${data.input_count} 个`);
   addSummaryCard("识别发票页", `${data.pdf_count} 页`);
   addSummaryCard("票面合计", data.amount_total ? `¥ ${data.amount_total}` : "无法计算");
-  addSummaryCard("预期金额", data.expected_total ? `¥ ${data.expected_total}` : "未填写");
 
   if (data.split_pdf_names?.length) {
     addNotice(`已将合并 PDF 按页拆分：${data.split_pdf_names.join("、")}`, "info");
-  }
-  if (!data.expected_total) {
-    addNotice("请填写预期总金额并重新预览，金额核对通过后才能导出 Excel。", "warning");
   }
   (data.errors || []).forEach(message => addNotice(message, "error"));
   if (data.non_pdf_entries?.length) {
@@ -261,7 +255,7 @@ function updateExportState() {
   const pending = (previewData.records || []).filter(record => (
     record.needs_review && !confirmedReviewIds.has(record.record_id)
   ));
-  const hasBlockingError = !previewData.expected_total || (previewData.errors || []).length > 0;
+  const hasBlockingError = (previewData.errors || []).length > 0;
   previewValid = !hasBlockingError && pending.length === 0;
   exportButton.disabled = !previewValid;
   if (previewValid) {
@@ -427,7 +421,6 @@ document.querySelector("#clear-profile").addEventListener("click", () => {
   profileMessage.textContent = "已清除当前浏览器保存的个人信息。";
   showToast("已清除保存的信息。")
 });
-fields.expected_total.addEventListener("input", invalidatePreview);
 fields.reimbursement_type.addEventListener("change", invalidatePreview);
 
 const today = new Date();

@@ -63,33 +63,50 @@ async function adminFetch(url, options = {}) {
 function renderRules(data) {
   reimbursementTypes = data.reimbursement_types || reimbursementTypes;
   ruleList.replaceChildren();
-  (data.rules || []).forEach(rule => {
-    const card = document.createElement("article");
-    card.className = "rule-card";
-    card.dataset.ruleId = rule.id;
+  (data.rules || []).forEach(addRuleCard);
+}
 
-    const typeOptions = ["", ...reimbursementTypes].map(value => {
-      const label = value || "保持用户默认类型";
-      return `<option value="${value}"${value === rule.reimbursement_type ? " selected" : ""}>${label}</option>`;
-    }).join("");
-    card.innerHTML = `
-      <div class="rule-title">
-        <div><strong></strong><p></p></div>
-        <label class="toggle"><input class="rule-enabled" type="checkbox" ${rule.enabled ? "checked" : ""}> 启用</label>
-      </div>
-      <div class="rule-grid">
-        <label class="field"><span>命中后的报销类型</span><select class="rule-type">${typeOptions}</select></label>
-        <label class="field"><span>备注提示</span><input class="rule-remark" maxlength="300"></label>
-        <label class="field wide"><span>关键词（每行一个，* 可代表任意文字）</span><textarea class="rule-keywords" maxlength="3100"></textarea></label>
-        <label class="field wide"><span>说明模板链接（可为空）</span><input class="rule-url" type="url" maxlength="1000" placeholder="http:// 或 https://"></label>
-      </div>`;
-    card.querySelector(".rule-title strong").textContent = rule.title;
-    card.querySelector(".rule-title p").textContent = rule.description;
-    card.querySelector(".rule-remark").value = rule.remark || "";
-    card.querySelector(".rule-keywords").value = (rule.keywords || []).join("\n");
-    card.querySelector(".rule-url").value = rule.template_url || "";
-    ruleList.append(card);
-  });
+function addRuleCard(rule = {}) {
+  const card = document.createElement("article");
+  card.className = "rule-card";
+  card.dataset.ruleId = rule.id || "";
+  const isBuiltin = ["courier", "transport", "cable", "computer_accessories"].includes(rule.id);
+  const typeOptions = ["", ...reimbursementTypes].map(value => {
+    const label = value || "保持用户默认类型";
+    return `<option value="${value}"${value === rule.reimbursement_type ? " selected" : ""}>${label}</option>`;
+  }).join("");
+  card.innerHTML = `
+    <div class="rule-title">
+      <div><strong>${isBuiltin ? "内置规则" : "自定义规则"}</strong><p>项目名称包含任一关键词时即命中；不支持 * 通配符。</p></div>
+      <div><label class="toggle"><input class="rule-enabled" type="checkbox" ${rule.enabled !== false ? "checked" : ""}> 启用</label>${isBuiltin ? "" : '<button class="text-button danger-button delete-rule" type="button">删除</button>'}</div>
+    </div>
+    <div class="rule-grid">
+      <label class="field"><span>规则名称 <b>*</b></span><input class="rule-name" maxlength="80" placeholder="例如：采购耗材"></label>
+      <label class="field"><span>命中后的报销类型</span><select class="rule-type">${typeOptions}</select></label>
+      <label class="field wide"><span>规则说明（管理员可见）</span><textarea class="rule-description" maxlength="300" placeholder="说明这条规则在什么情况下使用"></textarea></label>
+      <label class="field wide"><span>关键词（每行一个；项目名称包含任一项即命中）<b>*</b></span><textarea class="rule-keywords" maxlength="3100" placeholder="例如：物流服务费"></textarea></label>
+      <label class="field"><span>备注提示</span><input class="rule-remark" maxlength="300"></label>
+      <label class="field wide"><span>说明模板链接（可为空）</span><input class="rule-url" type="url" maxlength="1000" placeholder="http:// 或 https://"></label>
+    </div>`;
+  card.querySelector(".rule-name").value = rule.title || "";
+  card.querySelector(".rule-description").value = rule.description || "";
+  card.querySelector(".rule-remark").value = rule.remark || "";
+  card.querySelector(".rule-keywords").value = (rule.keywords || []).join("\n");
+  card.querySelector(".rule-url").value = rule.template_url || "";
+  card.querySelector(".delete-rule")?.addEventListener("click", () => deleteRule(card));
+  ruleList.append(card);
+}
+
+function rulePayload(card) {
+  return {
+    title: card.querySelector(".rule-name").value.trim(),
+    description: card.querySelector(".rule-description").value.trim(),
+    reimbursement_type: card.querySelector(".rule-type").value,
+    keywords: card.querySelector(".rule-keywords").value.split(/\r?\n/).map(value => value.trim()).filter(Boolean),
+    remark: card.querySelector(".rule-remark").value.trim(),
+    template_url: card.querySelector(".rule-url").value.trim(),
+    enabled: card.querySelector(".rule-enabled").checked,
+  };
 }
 
 function renderSite(site) {
@@ -189,24 +206,40 @@ logoutButton.addEventListener("click", () => {
 });
 
 document.querySelector("#save-rules").addEventListener("click", async () => {
-  const rules = [...document.querySelectorAll(".rule-card")].map(card => ({
-    id: card.dataset.ruleId,
-    reimbursement_type: card.querySelector(".rule-type").value,
-    keywords: card.querySelector(".rule-keywords").value.split(/\r?\n/).map(value => value.trim()).filter(Boolean),
-    remark: card.querySelector(".rule-remark").value.trim(),
-    template_url: card.querySelector(".rule-url").value.trim(),
-    enabled: card.querySelector(".rule-enabled").checked,
-  }));
   try {
-    const response = await adminFetch("/v1/admin/rules", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rules }),
-    });
-    renderRules({ ...(await response.json()), reimbursement_types: reimbursementTypes });
+    const cards = [...document.querySelectorAll(".rule-card")];
+    for (const card of cards) {
+      const ruleId = card.dataset.ruleId;
+      await adminFetch(ruleId ? `/v1/admin/rules/${encodeURIComponent(ruleId)}` : "/v1/admin/rules", {
+        method: ruleId ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rulePayload(card)),
+      });
+    }
+    const response = await adminFetch("/v1/admin/rules");
+    renderRules(await response.json());
     showToast("规则已保存，新的发票识别立即生效。");
   } catch (error) { showToast(error.message, true); }
 });
+
+document.querySelector("#new-rule").addEventListener("click", () => {
+  addRuleCard({ enabled: true });
+  ruleList.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "center" });
+  ruleList.lastElementChild?.querySelector(".rule-name")?.focus();
+});
+
+async function deleteRule(card) {
+  const ruleId = card.dataset.ruleId;
+  if (!ruleId) {
+    card.remove();
+    return;
+  }
+  try {
+    await adminFetch(`/v1/admin/rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" });
+    card.remove();
+    showToast("自定义规则已删除。");
+  } catch (error) { showToast(error.message, true); }
+}
 
 document.querySelector("#save-site-texts").addEventListener("click", async () => {
   const texts = {};

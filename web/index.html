@@ -14,7 +14,7 @@
       <span class="brand-mark" aria-hidden="true"><img id="site-logo" alt="" hidden><b id="logo-fallback">票</b></span>
       <span>
         <strong id="site-name">电子发票报销填报</strong>
-        <small id="site-tagline">票面原文识别 · 金额强校验</small>
+        <small id="site-tagline">票面原文识别 · 多文件导出</small>
       </span>
     </a>
     <div class="header-actions">
@@ -28,8 +28,8 @@
     <section class="hero">
       <div class="hero-copy">
         <p id="hero-kicker" class="eyebrow">INVOICE WORKSPACE</p>
-        <h1 id="hero-title">把发票放进来，核对后下载 Excel</h1>
-        <p id="hero-description">支持同时拖入多个 PDF 或 ZIP。合并 PDF 会按页拆开发票；任何无法可靠识别的字段都会停止导出，不会自行补写。</p>
+        <h1 id="hero-title">把发票放进来，确认后下载 Excel</h1>
+        <p id="hero-description">支持同时拖入多个 PDF 或 ZIP。合并 PDF 会按页拆开发票；项目名称和规格型号无法可靠识别时会提示人工核对，绝不自行补写。</p>
       </div>
       <img id="hero-image" class="hero-image" alt="首页展示图" hidden>
     </section>
@@ -106,11 +106,6 @@
               <option value="YES">YES</option>
               <option value="NO">NO</option>
             </select>
-          </label>
-          <label class="field">
-            <span>预期总金额 <b>*</b></span>
-            <div class="money-input"><span>¥</span><input id="expected-total" name="expected_total" inputmode="decimal" placeholder="例如 423.60"></div>
-            <small>用于强制核对价税合计；文件名含总金额时可自动读取。</small>
           </label>
         </div>
         <p id="profile-message" class="inline-message" role="status"></p>
