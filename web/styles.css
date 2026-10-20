@@ -142,6 +142,23 @@ button, label[for] { -webkit-tap-highlight-color: transparent; }
 .result-actions > span { color: var(--muted); font-size: 13px; line-height: 1.6; }
 .result-actions .button { min-width: 180px; }
 .result-button-row { display: flex; gap: 10px; flex-shrink: 0; }
+.result-actions { flex-wrap: wrap; }
+.result-button-row { flex-wrap: wrap; }
+.invoice-edit { width: 100%; min-width: 110px; padding: 7px; border: 1px solid #cfd8e3; border-radius: 5px; background: white; font: inherit; }
+textarea.invoice-edit { min-width: 180px; min-height: 125px; resize: vertical; }
+td:first-child .invoice-edit { min-width: 185px; }
+td:first-child small { display: block; margin-top: 10px; color: var(--muted); }
+td:first-child > button { display: block; margin-top: 7px; }
+.remove-invoice { margin-top: 10px; color: var(--red); }
+tr.excluded { opacity: .55; background: #f2f4f7; }
+#explanation-section { margin-top: 28px; }
+.explanation-editor { border: 1px solid var(--line); border-radius: 10px; padding: 20px; margin: 15px 0; scroll-margin-top: 95px; }
+.explanation-details { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.8; }
+.explanation-editor textarea { width: 100%; padding: 12px; border: 1px solid #cfd8e3; border-radius: 8px; font: inherit; line-height: 1.8; resize: vertical; }
+#invoice-dialog { max-width: 95vw; width: 1150px; max-height: 92vh; border: 1px solid var(--line); border-radius: 10px; }
+#invoice-dialog::backdrop { background: rgba(0,0,0,.5); }
+#invoice-dialog img { width: 100%; height: auto; }
+#invoice-dialog form { position: sticky; top: 0; text-align: right; }
 .result-heading { margin-bottom: 19px; }
 .result-badge { border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 750; }
 .result-badge.success { color: var(--green); background: var(--green-soft); }

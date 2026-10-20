@@ -33,7 +33,7 @@ HEADERS = [
     "是否传递发票",
     "备注",
 ]
-MANUAL_REVIEW_NOTE = "已人工核对票面项目名称及规格型号"
+MANUAL_REVIEW_NOTE = "已人工核对票面项目、规格、发票号码及金额"
 
 
 @dataclass(frozen=True)

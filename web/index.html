@@ -6,7 +6,7 @@
   <meta name="description" content="上传电子发票 PDF 或 ZIP，核对票面字段并生成报销 Excel。">
   <title>电子发票报销填报</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/styles.css?v=3.4.0">
+  <link rel="stylesheet" href="/assets/styles.css?v=4.0.0">
 </head>
 <body>
   <header class="topbar">
@@ -64,6 +64,7 @@
             <h2 id="profile-title">填写报销信息</h2>
           </div>
           <div class="profile-actions">
+            <button id="load-history" class="text-button" type="button">查看我的报销历史</button>
             <button id="save-profile" class="text-button" type="button">保存我的信息</button>
             <button id="clear-profile" class="text-button subtle" type="button">清除保存</button>
           </div>
@@ -150,8 +151,13 @@
           <tbody id="result-body"></tbody>
         </table>
       </div>
+      <section id="explanation-section" hidden>
+        <h2>在线填写说明</h2>
+        <p class="muted">项目明细会自动跟随本次保留的发票更新。请把【】中的提示改成实际用途；说明页按整张 A4 打印。</p>
+        <div id="explanation-editors"></div>
+      </section>
       <div class="result-actions">
-        <span>请核对上方所有发票项目；存在待人工核对时，请先完成确认。</span>
+        <span>请先核对票面。发票两张一页，说明另起整页；完成报销后再登记历史。</span>
         <div class="result-button-row">
           <button id="print-button" class="button print" type="button" disabled>
             <span id="print-button-text">一键打印全部发票及说明</span>
@@ -159,12 +165,19 @@
           <button id="export-button" class="button primary" type="button" disabled>
             <span id="export-button-text">下载 Excel</span>
           </button>
+          <button id="register-button" class="button print" type="button" disabled>登记已报销</button>
         </div>
       </div>
+    </section>
+    <section id="history-panel" class="panel" hidden>
+      <div class="section-heading"><h2>我的报销历史</h2><button id="refresh-history" class="text-button" type="button">刷新</button></div>
+      <p class="muted">按上方填写的学号和电话查询最近300条记录。仅点击“登记已报销”才会记入服务器；下载和打印不会自动登记。</p>
+      <div class="table-wrap"><table><thead><tr><th>发票号码</th><th>项目名称</th><th>金额</th><th>登记时间</th><th>操作</th></tr></thead><tbody id="history-body"></tbody></table></div>
     </section>
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/assets/app.js?v=3.4.0" defer></script>
+  <dialog id="invoice-dialog" aria-label="发票票面"><form method="dialog"><button class="text-button">关闭</button></form><img id="invoice-image" alt="原始发票票面"></dialog>
+  <script src="/assets/app.js?v=4.0.0" defer></script>
 </body>
 </html>

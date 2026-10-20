@@ -20,6 +20,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from excel_writer import ReimbursementProfile, build_excel_bytes
+from invoice_history import find_history, list_history, save_history, undo_history
+from invoice_review import apply_review, explanation_groups, prepare_explanations
 from print_bundle import build_print_pdf
 from processing import ProcessingResult, process_inputs
 from reimbursement_rules import (
@@ -54,9 +56,6 @@ ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 WEB_DIR = Path(__file__).resolve().parent / "web"
 SUPPORTED_SUFFIXES = {".pdf", ".zip"}
-CONFIRMABLE_REVIEW_REASON = re.compile(
-    r"^识别到 \d+ 个不同的非折扣项目，无法安全合并为一行$"
-)
 
 
 class RulePayload(BaseModel):
@@ -79,6 +78,15 @@ class LegacyRulesUpdateBody(BaseModel):
 
 class SiteTextUpdateBody(BaseModel):
     texts: dict[str, str]
+
+
+class HistoryQuery(BaseModel):
+    student_id: str = Field(min_length=1, max_length=50)
+    phone: str = Field(min_length=1, max_length=50)
+
+
+class HistoryUndo(HistoryQuery):
+    invoice_number: str = Field(pattern=r"^\d{8,30}$")
 
 
 class JobLimiter:
@@ -119,7 +127,7 @@ class JobLimiter:
 limiter = JobLimiter(MAX_CONCURRENT_JOBS, MAX_QUEUED_JOBS, QUEUE_TIMEOUT_SECONDS)
 app = FastAPI(
     title="电子发票报销填报服务",
-    version="3.4.0",
+    version="4.0.0",
     description="上传一个或多个电子发票 PDF/ZIP，预览票面原文字段、下载 Excel，或合并发票和说明文件后一键打印。金额合计不再核销。",
 )
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
@@ -206,6 +214,8 @@ def _serialize(
     summary = result.summary
     records = []
     confirmed_ids = confirmed_review_ids or set()
+    history = find_history([record.invoice_number for record in result.records])
+    numbers = [record.invoice_number for record in result.records]
     unresolved_review_files: list[str] = []
     for index, record in enumerate(result.records, start=1):
         record_id = f"invoice-{index:03d}"
@@ -223,6 +233,8 @@ def _serialize(
             "remarks": list(classification.remarks),
             "template_urls": list(classification.template_urls),
             "matched_rule_ids": list(classification.matched_rule_ids),
+            "duplicate_history": record.invoice_number in history,
+            "duplicate_batch": bool(record.invoice_number) and numbers.count(record.invoice_number) > 1,
         })
         records.append(item)
     return {
@@ -240,8 +252,12 @@ def _serialize(
         "can_export": (
             not validation.errors
             and not unresolved_review_files
+            and not history
+            and len(set(number for number in numbers if number)) == len(numbers)
         ),
         "records": records,
+        "rules": [rule.to_dict() for rule in rules],
+        "explanations": explanation_groups(result.records, fallback_type, rules),
     }
 
 
@@ -259,13 +275,7 @@ def _rules_with_public_urls(
 
 
 def _review_is_confirmable(record) -> bool:
-    return (
-        record.needs_review
-        and record.amount is not None
-        and bool(record.item_name)
-        and bool(record.review_reasons)
-        and all(CONFIRMABLE_REVIEW_REASON.fullmatch(reason) for reason in record.review_reasons)
-    )
+    return record.needs_review
 
 
 def _parse_confirmed_review_ids(value: str) -> set[str]:
@@ -290,7 +300,7 @@ def _collect_uploads(files: list[UploadFile] | None, file: UploadFile | None) ->
     return uploads
 
 
-async def _process_uploads(uploads: list[UploadFile]) -> ProcessingResult:
+async def _process_uploads(uploads: list[UploadFile], *, render_previews: bool = False) -> ProcessingResult:
     async with limiter.slot():
         with tempfile.TemporaryDirectory(prefix="invoice_service_request_") as temporary:
             input_paths = await _save_uploads(uploads, Path(temporary))
@@ -301,11 +311,37 @@ async def _process_uploads(uploads: list[UploadFile]) -> ProcessingResult:
                     max_pdf_count=MAX_PDF_COUNT,
                     max_uncompressed_bytes=MAX_UNCOMPRESSED_BYTES,
                     max_compression_ratio=MAX_COMPRESSION_RATIO,
+                    render_previews=render_previews,
                 )
             except HTTPException:
                 raise
             except Exception as error:
                 raise HTTPException(status_code=422, detail=f"发票处理失败：{error}") from error
+
+
+def _reviewed_result(result, edits: str, confirmed_ids: set[str]):
+    try:
+        return apply_review(result, edits, confirmed_ids)
+    except (ValueError, TypeError) as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+
+
+def _require_ready(result: ProcessingResult, *, check_history: bool = True) -> None:
+    issues = list(result.validation.errors)
+    if result.validation.review_files:
+        issues.append("请修改或确认这些发票：" + "、".join(result.validation.review_files))
+    for record in result.records:
+        if not re.fullmatch(r"\d{8,30}", record.invoice_number) or not record.item_name or record.amount is None:
+            issues.append(f"{record.pdf_name}：请补齐发票号码、项目名称和金额。")
+    numbers = [record.invoice_number for record in result.records]
+    if len(set(numbers)) != len(numbers):
+        issues.append("本批次含重复发票号码，请删除多余发票。")
+    if check_history:
+        previous = find_history(numbers)
+        if previous:
+            issues.append("以下发票已登记报销，请从本次移除：" + "、".join(previous))
+    if issues:
+        raise HTTPException(status_code=422, detail="；".join(issues))
 
 
 def _required_text(value: str, label: str, max_length: int) -> str:
@@ -400,7 +436,7 @@ async def preview_invoices(
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     rules = _rules_with_public_urls(get_rules(), request)
-    result = await _process_uploads(_collect_uploads(files, file))
+    result = await _process_uploads(_collect_uploads(files, file), render_previews=True)
     return JSONResponse(_serialize(result, fallback_type, rules))
 
 
@@ -417,6 +453,7 @@ async def export_invoices(
     phone: str = Form(default=""),
     transmit_invoice: str = Form(default="YES"),
     confirmed_review_ids: str = Form(default="[]"),
+    edits: str = Form(default="[]"),
 ) -> Response:
     try:
         fallback_type = normalize_reimbursement_type(reimbursement_type)
@@ -425,16 +462,8 @@ async def export_invoices(
     rules = _rules_with_public_urls(get_rules(), request)
     confirmed_ids = _parse_confirmed_review_ids(confirmed_review_ids)
     result = await _process_uploads(_collect_uploads(files, file))
-    confirmable_ids = {
-        f"invoice-{index:03d}"
-        for index, record in enumerate(result.records, start=1)
-        if _review_is_confirmable(record)
-    }
-    if not confirmed_ids.issubset(confirmable_ids):
-        raise HTTPException(status_code=422, detail="发票内容已变化或确认记录无效，请重新预览并核对。")
-    payload = _serialize(result, fallback_type, rules, confirmed_ids)
-    if not payload["can_export"]:
-        raise HTTPException(status_code=422, detail={"message": "仍有需要人工核对的票面字段，未生成 Excel。", **payload})
+    result, _, confirmed_ids = _reviewed_result(result, edits, confirmed_ids)
+    _require_ready(result)
 
     parsed_date = _parse_date(_required_text(fill_date, "填报日期", 10))
     profile = ReimbursementProfile(
@@ -466,6 +495,10 @@ async def print_invoices(
     files: list[UploadFile] | None = File(default=None, description="一个或多个 PDF/ZIP"),
     file: UploadFile | None = File(default=None, description="兼容旧版单 ZIP 参数"),
     reimbursement_type: str = Form(default="材料费"),
+    edits: str = Form(default="[]"),
+    explanations: str = Form(default="[]"),
+    claimant: str = Form(default=""),
+    fill_date: str = Form(default=""),
 ) -> Response:
     try:
         fallback_type = normalize_reimbursement_type(reimbursement_type)
@@ -485,12 +518,21 @@ async def print_invoices(
                     max_uncompressed_bytes=MAX_UNCOMPRESSED_BYTES,
                     max_compression_ratio=MAX_COMPRESSION_RATIO,
                 )
+                result, indexes, _ = _reviewed_result(result, edits, set())
+                _require_ready(result, check_history=False)
+                prepared = prepare_explanations(
+                    result.records, fallback_type, rules, explanations,
+                    _required_text(claimant, "说明人姓名", 50),
+                    _parse_date(_required_text(fill_date, "填报日期", 10)).strftime("%Y/%m/%d"),
+                )
                 printable_pdf = await asyncio.to_thread(
                     build_print_pdf,
                     input_paths,
                     result.records,
                     fallback_type,
                     rules,
+                    included_page_indexes=indexes,
+                    explanations=prepared,
                     max_pdf_count=MAX_PDF_COUNT,
                     max_uncompressed_bytes=MAX_UNCOMPRESSED_BYTES,
                     max_compression_ratio=MAX_COMPRESSION_RATIO,
@@ -507,6 +549,43 @@ async def print_invoices(
         media_type="application/pdf",
         headers={"Content-Disposition": disposition, "Cache-Control": "no-store"},
     )
+
+
+@app.post("/v1/invoices/history/query")
+async def query_invoice_history(body: HistoryQuery) -> dict:
+    # shortcut: 沿用学号和电话查询历史；需要公网个人账户隔离时再接入用户登录。
+    student_id = _required_text(body.student_id, "学号", 50)
+    phone = _required_text(body.phone, "电话", 50)
+    rows = await asyncio.to_thread(list_history, student_id, phone)
+    return {"records": rows}
+
+
+@app.post("/v1/invoices/history/register")
+async def register_invoice_history(
+    files: list[UploadFile] = File(...),
+    edits: str = Form(default="[]"),
+    claimant: str = Form(default=""),
+    student_id: str = Form(default=""),
+    phone: str = Form(default=""),
+) -> dict:
+    claimant = _required_text(claimant, "实报人", 50)
+    student_id = _required_text(student_id, "学号", 50)
+    phone = _required_text(phone, "电话", 50)
+    result = await _process_uploads(files)
+    result, _, _ = _reviewed_result(result, edits, set())
+    _require_ready(result)
+    duplicates = await asyncio.to_thread(save_history, list(result.records), claimant, student_id, phone)
+    if duplicates:
+        raise HTTPException(status_code=409, detail="以下发票已登记报销：" + "、".join(duplicates))
+    return {"registered_count": len(result.records)}
+
+
+@app.post("/v1/invoices/history/undo")
+async def undo_invoice_history(body: HistoryUndo) -> dict:
+    removed = await asyncio.to_thread(undo_history, body.invoice_number, body.student_id.strip(), body.phone.strip())
+    if not removed:
+        raise HTTPException(status_code=404, detail="未找到对应的报销登记。")
+    return {"removed": True}
 
 
 @app.get("/v1/admin/rules")

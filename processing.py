@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import base64
 import tempfile
 from dataclasses import dataclass
 from decimal import Decimal
@@ -9,7 +10,7 @@ from pathlib import Path
 from pypdf import PdfReader, PdfWriter
 
 from archive_reader import extract_pdfs, inspect_archive
-from invoice_reader import InvoiceRecord, read_invoice
+from invoice_reader import InvoiceRecord, read_invoice, render_first_page
 from validator import ValidationResult, validate
 
 
@@ -70,6 +71,7 @@ def process_inputs(
     max_pdf_count: int = 100,
     max_uncompressed_bytes: int = 200 * 1024 * 1024,
     max_compression_ratio: float = 200.0,
+    render_previews: bool = False,
 ) -> ProcessingResult:
     """处理任意数量的 PDF/ZIP，并把合并 PDF 按页作为独立发票读取。"""
     if not input_paths:
@@ -116,10 +118,16 @@ def process_inputs(
                 raise ValueError(f"全部文件解压后总大小超过 {limit_mb} MB 限制。")
 
         page_paths: list[Path] = []
+        split_errors: dict[Path, str] = {}
         split_pdf_names: list[str] = []
         for pdf_index, pdf_path in enumerate(pdf_sources, start=1):
             split_dir = work_dir / f"split_{pdf_index:03d}"
-            pages, was_split = _split_pdf_pages(pdf_path, split_dir)
+            try:
+                pages, was_split = _split_pdf_pages(pdf_path, split_dir)
+            except Exception as error:
+                # 单张损坏或加密的 PDF 保留为可移除的待核对项，继续处理其余发票。
+                pages, was_split = [pdf_path], False
+                split_errors[pdf_path] = f"PDF 无法拆页：{error}；可删除此项后继续"
             if was_split:
                 split_pdf_names.append(pdf_path.name)
             page_paths.extend(pages)
@@ -127,6 +135,19 @@ def process_inputs(
                 raise ValueError(f"拆页后发票页数超过限制 {max_pdf_count}。")
 
         records = tuple(read_invoice(path) for path in page_paths)
+        for record, path in zip(records, page_paths, strict=True):
+            if path in split_errors:
+                record.needs_review = True
+                record.review_reasons.append(split_errors[path])
+        if render_previews:
+            for index, (record, path) in enumerate(zip(records, page_paths, strict=True)):
+                preview = work_dir / f"preview_{index}.png"
+                try:
+                    render_first_page(path, preview, scale=1.2)
+                    record.preview_image = "data:image/png;base64," + base64.b64encode(preview.read_bytes()).decode("ascii")
+                except Exception:
+                    # 预览渲染失败仍允许用户对照自己的原始 PDF 手工补录。
+                    record.preview_image = ""
 
     inferred_count: int | None = None
     if len(input_paths) == 1 and declared_counts[0] is not None:

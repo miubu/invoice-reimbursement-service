@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import hashlib
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -13,6 +14,9 @@ MONEY_RE = re.compile(r"[（(]小写[）)]\s*[¥￥]?\s*([0-9][0-9,]*\.\d{2})")
 INVOICE_NO_RE = re.compile(r"发票号码[：:]\s*(\d+)")
 INVOICE_DATE_RE = re.compile(r"开票日期[：:]\s*(\d{4}年\d{2}月\d{2}日)")
 NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?%?$")
+AMOUNT_WORD_RE = re.compile(r"^[0-9][0-9,]*\.\d{2}$")
+INVOICE_NUMBER_WORD_RE = re.compile(r"^\d{8,30}$")
+INVOICE_DATE_WORD_RE = re.compile(r"^\d{4}年\d{2}月\d{2}日$")
 
 
 @dataclass
@@ -25,6 +29,8 @@ class InvoiceRecord:
     amount: Decimal | None
     needs_review: bool
     review_reasons: list[str]
+    source_digest: str = ""
+    preview_image: str = ""
 
     def to_json_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -35,6 +41,25 @@ class InvoiceRecord:
 
 def _find_word(words: list[dict[str, Any]], text: str) -> dict[str, Any] | None:
     return next((word for word in words if word["text"] == text), None)
+
+
+def _right_value(
+    words: list[dict[str, Any]],
+    label: str,
+    pattern: re.Pattern[str],
+    tolerance: float = 4,
+) -> str:
+    """读取与标签同一行、位于其右侧的值，兼容文字层阅读顺序错乱的发票。"""
+    anchor = _find_word(words, label)
+    if anchor is None:
+        return ""
+    candidates = [
+        word for word in words
+        if word["x0"] >= anchor["x1"] - 3
+        and abs(word["top"] - anchor["top"]) <= tolerance
+        and pattern.fullmatch(word["text"])
+    ]
+    return min(candidates, key=lambda word: word["x0"])["text"] if candidates else ""
 
 
 def _cluster_rows(words: list[dict[str, Any]], tolerance: float = 2.5) -> list[list[dict[str, Any]]]:
@@ -59,13 +84,7 @@ def _column_text(rows: list[list[dict[str, Any]]], left: float, right: float) ->
     return "".join(lines).strip()
 
 
-def _extract_detail_cells(page: Any) -> tuple[str, str, list[str]]:
-    words = page.extract_words(
-        x_tolerance=1,
-        y_tolerance=1,
-        keep_blank_chars=False,
-        use_text_flow=False,
-    )
+def _extract_detail_cells(words: list[dict[str, Any]]) -> tuple[str, str, list[str]]:
     item_header = _find_word(words, "项目名称")
     spec_header = _find_word(words, "规格型号")
     if not item_header or not spec_header:
@@ -136,7 +155,7 @@ def _extract_detail_cells(page: Any) -> tuple[str, str, list[str]]:
     if len(distinct) != 1:
         reasons.append(f"识别到 {len(distinct)} 个不同的非折扣项目，无法安全合并为一行")
     item = "；".join(pair[0] for pair in distinct)
-    specification = "；".join(pair[1] for pair in distinct)
+    specification = "；".join(pair[1] for pair in distinct if pair[1])
     if not item:
         reasons.append("项目名称为空")
     return item, specification, reasons
@@ -156,26 +175,45 @@ def read_invoice(pdf_path: Path) -> InvoiceRecord:
                 reasons.append(f"PDF 共 {len(pdf.pages)} 页，需要人工确认发票页")
             page = pdf.pages[0]
             text = page.extract_text(x_tolerance=2, y_tolerance=3) or ""
+            words = page.extract_words(
+                x_tolerance=1,
+                y_tolerance=1,
+                keep_blank_chars=False,
+                use_text_flow=False,
+            )
             if len(text.strip()) < 80:
                 reasons.append("PDF 文字层过少或不可读")
 
             amount_matches = MONEY_RE.findall(text)
-            if len(amount_matches) != 1:
+            amount_text = (
+                amount_matches[0]
+                if len(amount_matches) == 1
+                else _right_value(words, "（小写）", AMOUNT_WORD_RE)
+            )
+            if not amount_text:
                 reasons.append(f"价税合计（小写）匹配到 {len(amount_matches)} 处")
             else:
                 try:
-                    amount = Decimal(amount_matches[0].replace(",", ""))
+                    amount = Decimal(amount_text.replace(",", ""))
                 except InvalidOperation:
                     reasons.append("价税合计（小写）不是有效金额")
 
             number_match = INVOICE_NO_RE.search(text)
             date_match = INVOICE_DATE_RE.search(text)
-            invoice_number = number_match.group(1) if number_match else ""
-            invoice_date = date_match.group(1) if date_match else ""
+            invoice_number = (
+                number_match.group(1)
+                if number_match
+                else _right_value(words, "发票号码：", INVOICE_NUMBER_WORD_RE)
+            )
+            invoice_date = (
+                date_match.group(1)
+                if date_match
+                else _right_value(words, "开票日期：", INVOICE_DATE_WORD_RE)
+            )
             if not invoice_number:
                 reasons.append("未识别到发票号码")
 
-            item_name, specification, detail_reasons = _extract_detail_cells(page)
+            item_name, specification, detail_reasons = _extract_detail_cells(words)
             reasons.extend(detail_reasons)
     except Exception as error:
         reasons.append(f"PDF 读取失败：{type(error).__name__}: {error}")
@@ -195,6 +233,7 @@ def read_invoice(pdf_path: Path) -> InvoiceRecord:
         amount=amount,
         needs_review=bool(reasons),
         review_reasons=reasons,
+        source_digest=hashlib.sha256(pdf_path.read_bytes()).hexdigest(),
     )
 
 
