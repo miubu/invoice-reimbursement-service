@@ -10,6 +10,41 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
+def check_same_name_uploads(directory: Path) -> None:
+    import asyncio
+    import hashlib
+    from zipfile import ZipFile
+
+    from fastapi import UploadFile
+    from pypdf import PdfWriter
+
+    from print_bundle import _collect_invoice_pdfs
+    from processing import process_inputs
+    from server import _save_uploads
+
+    documents = []
+    for width in (200, 210, 220, 230):
+        writer = PdfWriter()
+        writer.add_blank_page(width=width, height=270)
+        pdf = io.BytesIO()
+        writer.write(pdf)
+        documents.append(pdf.getvalue())
+    zipped = io.BytesIO()
+    with ZipFile(zipped, "w") as archive:
+        archive.writestr("甲/月票.pdf", documents[2])
+        archive.writestr("乙/月票.pdf", documents[3])
+    zipped.seek(0)
+    uploads = [UploadFile(io.BytesIO(data), filename="月票.pdf") for data in documents[:2]]
+    uploads.append(UploadFile(zipped, filename="报销.zip"))
+    paths = asyncio.run(_save_uploads(uploads, directory / "uploads"))
+    limits = dict(max_pdf_count=10, max_uncompressed_bytes=1_000_000, max_compression_ratio=200)
+    records = process_inputs(paths, **limits).records
+    assert [r.source_digest for r in records] == [hashlib.sha256(data).hexdigest() for data in documents]
+    assert len({r.pdf_name for r in records}) == 4 and "乙/月票.pdf" in records[-1].pdf_name
+    printable = _collect_invoice_pdfs(paths, directory / "print", **limits)
+    assert [pdf.read_bytes() for pdf in printable] == documents
+
+
 def check_image_settings(client, auth: tuple[str, str]) -> None:
     from PIL import Image
 
@@ -61,6 +96,7 @@ def main() -> None:
         from server import app
         from site_settings import get_site_texts, update_site_texts
 
+        check_same_name_uploads(directory)
         document = io.BytesIO()
         page = canvas.Canvas(document, pagesize=(595, 300))
         page.drawString(50, 200, "FIRST-INVOICE")
@@ -92,6 +128,12 @@ def main() -> None:
         assert indexes == [0] and confirmed == {"invoice-001"}
         assert corrected.validation.can_export
         assert corrected.records[0].specification == ""
+        try:
+            apply_review(batch, json.dumps([dict(edits[1], source_digest=edits[0]["source_digest"])]), set())
+        except ValueError as error:
+            assert "重新预览" in str(error)
+        else:
+            raise AssertionError("旧票面的移除操作不能应用到另一张发票")
         unconfirmed = [dict(edits[0], confirmed=False), edits[1]]
         assert not apply_review(batch, json.dumps(unconfirmed), set())[0].validation.can_export
         for invalid in ("NaN", "Infinity", "-1", "19.491"):
@@ -103,7 +145,7 @@ def main() -> None:
             else:
                 raise AssertionError(f"invalid amount accepted: {invalid}")
 
-        notes = [{"rule_id": "cable", "note": "上述线材用于实验设备电源连接，特此说明。"}]
+        notes = [{"rule_id": "cable", "note": "上述线材用于【实验设备】电源连接，特此说明。"}]
         prepared = prepare_explanations(corrected.records, "材料费", get_rules(), json.dumps(notes), "检查用户", "2026/10/20")
         assert len(prepared) == 1 and "19.49" in prepared[0]["details"]
 
@@ -141,6 +183,9 @@ def main() -> None:
             assert len(list_history("CHECK-ONLY", "CHECK-PHONE")) == 1
             identity = {"student_id": "CHECK-ONLY", "phone": "CHECK-PHONE"}
             assert client.post("/v1/invoices/history/query", json=identity).status_code == 200
+            for keyword, count in (("连接线", 1), ("未出现的项目", 0)):
+                matches = client.post("/v1/invoices/history/query", json=dict(identity, keyword=keyword))
+                assert matches.is_success and len(matches.json()["records"]) == count
             assert client.post("/v1/invoices/history/undo", json=dict(identity, invoice_number=edits[0]["invoice_number"])).status_code == 200
             assert post("/v1/invoices/export").status_code == 200
 

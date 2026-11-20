@@ -6,8 +6,8 @@
   <meta name="description" content="上传电子发票 PDF 或 ZIP，核对票面字段并生成报销 Excel。">
   <title>电子发票报销填报</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/styles.css?v=4.1.0">
-  <link rel="stylesheet" href="/assets/site-image.css?v=4.1.0">
+  <link rel="stylesheet" href="/assets/styles.css?v=4.2.0">
+  <link rel="stylesheet" href="/assets/site-image.css?v=4.2.0">
 </head>
 <body class="workspace">
   <header class="topbar">
@@ -134,7 +134,19 @@
       </div>
       <div id="summary-cards" class="summary-cards"></div>
       <div id="result-notices" class="notices"></div>
-      <div class="table-wrap">
+      <div class="review-list">
+        <div class="review-tools">
+          <label>显示
+            <select id="review-filter" aria-controls="result-body">
+              <option value="all">全部发票</option>
+              <option value="attention">待核对</option>
+              <option value="excluded">已移出</option>
+            </select>
+          </label>
+          <button id="next-review" class="text-button" type="button" aria-controls="result-body">定位下一张待核对</button>
+        </div>
+        <p id="review-empty" class="muted" role="status" hidden></p>
+        <div id="review-table" class="table-wrap">
         <table>
           <thead>
             <tr>
@@ -149,6 +161,7 @@
           </thead>
           <tbody id="result-body"></tbody>
         </table>
+        </div>
       </div>
       <section id="explanation-section" hidden>
         <h2>在线填写说明</h2>
@@ -169,15 +182,19 @@
       </div>
     </section>
     <section id="history-panel" class="panel" hidden>
-      <div class="section-heading"><h2>我的报销历史</h2><button id="refresh-history" class="text-button" type="button">刷新</button></div>
-      <p class="muted">按上方填写的学号和电话查询最近300条记录。仅点击“登记已报销”才会记入服务器；下载和打印不会自动登记。</p>
-      <div class="table-wrap"><table><thead><tr><th>发票号码</th><th>项目名称</th><th>金额</th><th>登记时间</th><th>操作</th></tr></thead><tbody id="history-body"></tbody></table></div>
+      <div class="section-heading"><h2>我的报销历史</h2></div>
+      <form id="history-search" role="search" aria-label="搜索我的报销历史">
+        <label class="field"><span>发票号码、项目名称或文件名</span><input id="history-keyword" type="search" maxlength="200" autocomplete="off" placeholder="留空查看最近登记"></label>
+        <button type="submit" class="text-button">查询</button>
+      </form>
+      <p id="history-status" class="muted" role="status"></p>
+      <div class="table-wrap"><table><thead><tr><th>发票号码</th><th>项目名称</th><th>文件名</th><th>金额</th><th>登记时间</th><th>操作</th></tr></thead><tbody id="history-body"></tbody></table></div>
     </section>
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <dialog id="invoice-dialog" aria-label="发票票面"><form method="dialog"><button class="text-button">关闭</button></form><img id="invoice-image" alt="原始发票票面"></dialog>
-  <script src="/assets/site-image.js?v=4.1.0" defer></script>
-  <script src="/assets/app.js?v=4.1.0" defer></script>
+  <script src="/assets/site-image.js?v=4.2.0" defer></script>
+  <script src="/assets/app.js?v=4.2.0" defer></script>
 </body>
 </html>

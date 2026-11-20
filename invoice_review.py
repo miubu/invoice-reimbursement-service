@@ -34,10 +34,10 @@ def apply_review(
     for index, original in enumerate(result.records):
         record_id = f"invoice-{index + 1:03d}"
         edit = by_id.get(record_id, {})
-        if edit.get("excluded") is True:
-            continue
         if edit and (edit.get("pdf_name") != original.pdf_name or edit.get("source_digest") != original.source_digest):
             raise ValueError("上传文件发生变化，请重新预览。")
+        if edit.get("excluded") is True:
+            continue
         values = {}
         for field, limit in (("item_name", 6000), ("specification", 3000),
                              ("invoice_number", 30), ("invoice_date", 30)):
@@ -117,7 +117,7 @@ def prepare_explanations(records, fallback_type, rules, value: str, claimant: st
         note = submitted.get("note", group["note"])
         if not isinstance(note, str) or not note.strip() or len(note) > 10000:
             raise ValueError("说明文字不能为空或超过10000字。")
-        if "【" in note or "请填写" in note:
+        if "请填写" in note or re.search(r"【\s*】", note):
             raise ValueError(f"请先在网页中填写《{group['title']}》的用途说明。")
         group.update(note=note.strip(), claimant=claimant, date=date)
     return groups

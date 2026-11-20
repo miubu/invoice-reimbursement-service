@@ -19,6 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
+from archive_reader import staged_path
 from excel_writer import ReimbursementProfile, build_excel_bytes
 from invoice_history import find_history, list_history, save_history, undo_history
 from invoice_review import apply_review, explanation_groups, prepare_explanations
@@ -82,12 +83,16 @@ class SiteTextUpdateBody(BaseModel):
     texts: dict[str, str]
 
 
-class HistoryQuery(BaseModel):
+class HistoryOwner(BaseModel):
     student_id: str = Field(min_length=1, max_length=50)
     phone: str = Field(min_length=1, max_length=50)
 
 
-class HistoryUndo(HistoryQuery):
+class HistoryQuery(HistoryOwner):
+    keyword: str = Field(default="", max_length=200)
+
+
+class HistoryUndo(HistoryOwner):
     invoice_number: str = Field(pattern=r"^\d{8,30}$")
 
 
@@ -129,7 +134,7 @@ class JobLimiter:
 limiter = JobLimiter(MAX_CONCURRENT_JOBS, MAX_QUEUED_JOBS, QUEUE_TIMEOUT_SECONDS)
 app = FastAPI(
     title="电子发票报销填报服务",
-    version="4.1.0",
+    version="4.2.0",
     description="上传一个或多个电子发票 PDF/ZIP，预览票面原文字段、下载 Excel，或合并发票和说明文件后一键打印。金额合计不再核销。",
 )
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
@@ -179,17 +184,11 @@ def _validate_signature(path: Path) -> None:
 
 async def _save_uploads(uploads: list[UploadFile], directory: Path) -> list[Path]:
     targets: list[Path] = []
-    used_names: set[str] = set()
     total_size = 0
     try:
-        for upload in uploads:
+        for index, upload in enumerate(uploads, start=1):
             name = _safe_upload_name(upload.filename)
-            key = name.casefold()
-            if key in used_names:
-                raise HTTPException(status_code=422, detail=f"上传列表中存在同名文件：{name}")
-            used_names.add(key)
-
-            target = directory / name
+            target = staged_path(directory, index, name)
             with target.open("wb") as output:
                 while chunk := await upload.read(1024 * 1024):
                     total_size += len(chunk)
@@ -554,11 +553,12 @@ async def print_invoices(
 
 
 @app.post("/v1/invoices/history/query")
-async def query_invoice_history(body: HistoryQuery) -> dict:
+async def query_invoice_history(body: HistoryQuery, response: Response) -> dict:
     # shortcut: 沿用学号和电话查询历史；需要公网个人账户隔离时再接入用户登录。
     student_id = _required_text(body.student_id, "学号", 50)
     phone = _required_text(body.phone, "电话", 50)
-    rows = await asyncio.to_thread(list_history, student_id, phone)
+    response.headers["Cache-Control"] = "no-store"
+    rows = await asyncio.to_thread(list_history, student_id, phone, keyword=body.keyword)
     return {"records": rows}
 
 

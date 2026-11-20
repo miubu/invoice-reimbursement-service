@@ -10,6 +10,9 @@ const registerButton = document.querySelector("#register-button");
 const resultPanel = document.querySelector("#result-panel");
 const resultBadge = document.querySelector("#result-badge");
 const resultBody = document.querySelector("#result-body");
+const reviewFilter = document.querySelector("#review-filter");
+const nextReview = document.querySelector("#next-review");
+const reviewEmpty = document.querySelector("#review-empty");
 const summaryCards = document.querySelector("#summary-cards");
 const resultNotices = document.querySelector("#result-notices");
 const toast = document.querySelector("#toast");
@@ -25,9 +28,12 @@ const fields = {
 };
 const profileKey = "invoice-reimbursement-profile-v1";
 let selectedFiles = [];
+let fileSelection = Promise.resolve();
+let pendingSelections = 0;
 let previewValid = false;
 let previewData = null;
 let previewRequest;
+let lastReviewRow = null;
 let confirmedReviewIds = new Set();
 let explanationNotes = new Map();
 let toastTimer;
@@ -60,10 +66,32 @@ function invalidatePreview() {
   resultPanel.hidden = true;
 }
 
-function addFiles(files) {
+async function sameContents(left, right) {
+  if (left === right) return true;
+  const chunk = 1024 * 1024;
+  for (let offset = 0; offset < left.size; offset += chunk) {
+    const [a, b] = await Promise.all([left, right].map(file => file.slice(offset, offset + chunk).arrayBuffer()));
+    const other = new Uint8Array(b);
+    if (!new Uint8Array(a).every((value, index) => value === other[index])) return false;
+  }
+  return true;
+}
+
+function addFiles(fileList) {
+  const files = Array.from(fileList);
+  if (!files.length) return;
+  const alreadySelected = selectedFiles.slice();
+  pendingSelections++;
+  fileSelection = fileSelection.then(() => appendFiles(files, alreadySelected))
+    .catch(() => showToast("读取所选文件失败，请重新选择。", true))
+    .finally(() => { pendingSelections--; });
+  return fileSelection;
+}
+
+async function appendFiles(files, alreadySelected) {
   const allowed = [".pdf", ".zip"];
-  const existing = new Set(selectedFiles.map(fileKey));
-  const previousCount = selectedFiles.length;
+  const existing = [...new Set([...alreadySelected, ...selectedFiles])];
+  const additions = [];
   let rejected = 0;
   for (const file of files) {
     const suffix = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
@@ -71,13 +99,21 @@ function addFiles(files) {
       rejected += 1;
       continue;
     }
-    if (!existing.has(fileKey(file))) {
-      selectedFiles.push(file);
-      existing.add(fileKey(file));
+    const key = fileKey(file);
+    let duplicate = false;
+    for (const candidate of existing) {
+      if (fileKey(candidate) === key && await sameContents(file, candidate)) {
+        duplicate = true;
+        break;
+      }
     }
+    if (duplicate) continue;
+    additions.push(file);
+    existing.push(file);
   }
   if (rejected) showToast(`已忽略 ${rejected} 个非 PDF/ZIP 文件。`, true);
-  if (selectedFiles.length !== previousCount) {
+  if (additions.length) {
+    selectedFiles.push(...additions);
     invalidatePreview();
     renderFiles();
   } else if (files.length && !rejected) {
@@ -133,7 +169,10 @@ function buildFormData(includeProfile = false) {
       amount: record.amount, excluded: !!record.excluded,
       confirmed: confirmedReviewIds.has(record.record_id),
     }))));
-    data.append("explanations", JSON.stringify([...explanationNotes].map(([rule_id, note]) => ({rule_id, note}))));
+    const notes = Array.from(document.querySelectorAll("#explanation-editors textarea"), input => ({
+      rule_id: input.dataset.ruleId, note: input.value,
+    }));
+    data.append("explanations", JSON.stringify(notes));
   }
   data.append("claimant", fields.claimant.value.trim());
   data.append("fill_date", fields.fill_date.value);
@@ -147,6 +186,10 @@ function buildFormData(includeProfile = false) {
 }
 
 function validateBeforeRequest(includeProfile = false) {
+  if (pendingSelections) {
+    showToast("正在读取所选文件，请稍后再试。");
+    return false;
+  }
   if (!selectedFiles.length) {
     showToast("请先选择至少一个 PDF 或 ZIP 文件。", true);
     dropZone.focus();
@@ -186,6 +229,8 @@ function addNotice(message, kind = "info") {
 
 function renderResult(data) {
   previewData = data;
+  reviewFilter.value = "all";
+  lastReviewRow = null;
   confirmedReviewIds.clear();
   explanationNotes.clear();
   resultPanel.hidden = false;
@@ -221,6 +266,7 @@ function renderResult(data) {
     function editable(cell, field, label, multiline = false) {
       const input = document.createElement(multiline ? "textarea" : "input");
       input.className = "invoice-edit";
+      input.dataset.field = field;
       input.value = record[field] ?? "";
       input.setAttribute("aria-label", `${record.pdf_name} ${label}`);
       if (field === "amount") { input.inputMode = "decimal"; input.maxLength = 12; }
@@ -256,50 +302,37 @@ function renderResult(data) {
     refreshClassification(record, reimbursementType, remarks);
     const status = document.createElement("td");
     const pill = document.createElement("span");
-    pill.className = `status-pill ${record.needs_review ? "warning" : "success"}`;
-    pill.textContent = record.status;
-    status.append(pill);
-    if (record.review_reasons?.length) {
-      const reasons = document.createElement("div");
-      reasons.className = "review-reasons";
-      reasons.textContent = record.review_reasons.join("；");
-      status.append(reasons);
-    }
-      const confirmation = document.createElement("label");
-      confirmation.className = "manual-review-confirmation";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.dataset.recordId = record.record_id;
-      const text = document.createElement("span");
-      text.textContent = "我已对照票面，确认项目、规格、号码和金额无误";
-      checkbox.addEventListener("change", () => {
-        if (checkbox.checked) {
-          confirmedReviewIds.add(record.record_id);
-          pill.textContent = "已人工确认";
-          pill.className = "status-pill success";
-        } else {
-          confirmedReviewIds.delete(record.record_id);
-          pill.textContent = record.status;
-          pill.className = "status-pill warning";
-        }
-        updateExportState();
-      });
-      confirmation.append(checkbox, text);
-      status.append(confirmation);
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "text-button remove-invoice";
-      remove.textContent = "删除这张发票";
-      remove.addEventListener("click", () => {
-        record.excluded = !record.excluded;
-        row.classList.toggle("excluded", record.excluded);
-        row.querySelectorAll(".invoice-edit").forEach(input => { input.disabled = record.excluded; });
-        checkbox.disabled = record.excluded;
-        remove.textContent = record.excluded ? "恢复这张发票" : "删除这张发票";
-        renderExplanations();
-        updateExportState();
-      });
-      status.append(remove);
+    pill.className = "status-pill";
+    const reasons = document.createElement("div");
+    reasons.className = "review-reasons";
+    reasons.id = `review-reasons-${record.record_id}`;
+    const confirmation = document.createElement("label");
+    confirmation.className = "manual-review-confirmation";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.recordId = record.record_id;
+    checkbox.setAttribute("aria-describedby", reasons.id);
+    const text = document.createElement("span");
+    text.textContent = "我已对照票面，确认项目、规格、号码和金额无误";
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) confirmedReviewIds.add(record.record_id);
+      else confirmedReviewIds.delete(record.record_id);
+      updateExportState();
+    });
+    confirmation.append(checkbox, text);
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "text-button remove-invoice";
+    remove.textContent = "移出本次";
+    remove.addEventListener("click", () => {
+      record.excluded = !record.excluded;
+      row.classList.toggle("excluded", record.excluded);
+      row.querySelectorAll(".invoice-edit").forEach(input => { input.disabled = record.excluded; });
+      remove.textContent = record.excluded ? "恢复这张发票" : "移出本次";
+      renderExplanations();
+      updateExportState();
+    });
+    status.append(pill, reasons, confirmation, remove);
     row.append(filename, item, specification, reimbursementType, amount, remarks, status);
     resultBody.append(row);
   }
@@ -309,8 +342,12 @@ function renderResult(data) {
   resultPanel.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function ruleMatches(rule, record) {
+  return rule.enabled && rule.keywords.some(keyword => keyword && (record.item_name || "").includes(keyword));
+}
+
 function matchingRules(record) {
-  return (previewData?.rules || []).filter(rule => rule.enabled && rule.keywords.some(keyword => keyword && (record.item_name || "").includes(keyword)));
+  return (previewData?.rules || []).filter(rule => ruleMatches(rule, record));
 }
 
 function refreshClassification(record, typeCell, remarks) {
@@ -342,12 +379,10 @@ function renderExplanations() {
   const container = document.querySelector("#explanation-editors");
   container.replaceChildren();
   const defaults = new Map((previewData?.explanations || []).map(item => [item.rule_id, item.note]));
-  const active = new Set();
   for (const rule of previewData?.rules || []) {
     if (!rule.template_url && !["courier", "transport", "cable"].includes(rule.id)) continue;
-    const records = previewData.records.filter(record => !record.excluded && matchingRules(record).some(item => item.id === rule.id));
+    const records = previewData.records.filter(record => !record.excluded && ruleMatches(rule, record));
     if (!records.length) continue;
-    active.add(rule.id);
     const section = document.createElement("section");
     section.className = "explanation-editor";
     section.id = `explanation-${rule.id}`;
@@ -358,14 +393,62 @@ function renderExplanations() {
     const title = document.createElement("span"); title.textContent = "补充用途和事由（打印时自动带上上方明细、说明人和日期）";
     const input = document.createElement("textarea"); input.rows = 5; input.maxLength = 10000;
     input.setAttribute("aria-label", `${rule.title}说明内容`);
+    input.dataset.ruleId = rule.id;
     input.value = explanationNotes.get(rule.id) ?? defaults.get(rule.id) ?? "上述费用用于【请填写具体用途和事由】，特此说明。";
-    explanationNotes.set(rule.id, input.value);
-    input.addEventListener("input", () => explanationNotes.set(rule.id, input.value));
+    input.addEventListener("input", () => {
+      explanationNotes.set(rule.id, input.value);
+      input.setCustomValidity("");
+    });
     label.append(title, input); section.append(heading, details, label); container.append(section);
   }
-  for (const id of explanationNotes.keys()) if (!active.has(id)) explanationNotes.delete(id);
-  document.querySelector("#explanation-section").hidden = active.size === 0;
+  document.querySelector("#explanation-section").hidden = !container.childElementCount;
 }
+
+function focusReviewRow(row) {
+  const target = row.querySelector('[aria-invalid="true"]') ||
+    (row.classList.contains("excluded") ? row.querySelector(".remove-invoice") : row.cells[0].querySelector("button, input"));
+  target.focus();
+}
+
+function nextReviewRow(rows) {
+  return rows.find(row => row.sectionRowIndex > (lastReviewRow?.sectionRowIndex ?? -1)) || rows[0];
+}
+
+function filterReviewRows() {
+  const focused = document.activeElement?.closest("tr");
+  const mode = reviewFilter.value;
+  const rows = Array.from(resultBody.rows);
+  const pending = rows.filter(row => row.classList.contains("needs-attention"));
+  const removed = rows.filter(row => row.classList.contains("excluded"));
+  const visible = mode === "attention" ? pending : mode === "excluded" ? removed : rows;
+  for (const row of rows) {
+    row.hidden = mode === "attention" ? !row.classList.contains("needs-attention") :
+      mode === "excluded" && !row.classList.contains("excluded");
+  }
+  reviewFilter.options[0].textContent = `全部发票（${rows.length}）`;
+  reviewFilter.options[1].textContent = `待核对（${pending.length}）`;
+  reviewFilter.options[2].textContent = `已移出（${removed.length}）`;
+  nextReview.disabled = pending.length === 0;
+  document.querySelector("#review-table").hidden = visible.length === 0;
+  reviewEmpty.hidden = visible.length > 0;
+  reviewEmpty.textContent = visible.length ? "" : mode === "excluded" ? "本次没有移出的发票。" :
+    mode === "attention" ? "当前没有待核对的发票。" : "本次没有发票。";
+  if (focused?.parentNode === resultBody && focused.hidden) {
+    if (visible.length) focusReviewRow(nextReviewRow(visible));
+    else reviewFilter.focus();
+  }
+}
+
+reviewFilter.addEventListener("change", filterReviewRows);
+resultBody.addEventListener("focusin", event => { lastReviewRow = event.target.closest("tr"); });
+nextReview.addEventListener("click", () => {
+  if (reviewFilter.value === "excluded") {
+    reviewFilter.value = "attention";
+    filterReviewRows();
+  }
+  const row = nextReviewRow(Array.from(resultBody.querySelectorAll(".needs-attention")));
+  if (row) focusReviewRow(row);
+});
 
 function updateExportState() {
   if (!previewData) {
@@ -377,36 +460,72 @@ function updateExportState() {
   }
   const active = previewData.records.filter(record => !record.excluded);
   const counts = new Map();
-  active.forEach(record => counts.set(record.invoice_number, (counts.get(record.invoice_number) || 0) + 1));
-  const pending = active.filter(record => ((record.needs_review || record.edited) && !confirmedReviewIds.has(record.record_id)) || !record.item_name.trim() || !/^\d{8,30}$/.test(record.invoice_number) || !/^\d+(\.\d{1,2})?$/.test(String(record.amount ?? "")));
-  const duplicates = active.filter(record => (record.duplicate_history && record.invoice_number === record.original_invoice_number) || counts.get(record.invoice_number) > 1);
-  const ready = active.length > 0 && pending.length === 0;
-  previewValid = ready && !duplicates.length;
-  exportButton.disabled = !previewValid;
-  registerButton.disabled = !previewValid;
-  printButton.disabled = !ready;
+  const registered = new Set(previewData.records.filter(record => record.duplicate_history)
+    .map(record => record.original_invoice_number.trim()));
+  for (const record of active) {
+    const number = record.invoice_number.trim();
+    if (/^\d{8,30}$/.test(number)) counts.set(number, (counts.get(number) || 0) + 1);
+  }
+  let pending = 0, duplicates = 0, batchDuplicate = false, cents = 0;
+  previewData.records.forEach((record, index) => {
+    const number = record.invoice_number.trim();
+    const amount = String(record.amount ?? "").trim();
+    const validAmount = /^\d+(\.\d{1,2})?$/.test(amount) && Number(amount) <= 999999999.99;
+    const errors = new Map();
+    if (!record.item_name.trim()) errors.set("item_name", "请补充票面项目名称");
+    if (!/^\d{8,30}$/.test(number)) errors.set("invoice_number", "发票号码应为 8 至 30 位数字");
+    if (!validAmount) errors.set("amount", "请填写 0 至 999999999.99 元的票面金额，最多两位小数");
+    const sameBatch = counts.get(number) > 1;
+    const historical = !!number && registered.has(number);
+    const confirmed = confirmedReviewIds.has(record.record_id);
+    const needsConfirmation = (record.needs_review || record.edited) && !confirmed;
+    const needsReview = errors.size > 0 || needsConfirmation;
+    const attention = !record.excluded && (needsReview || sameBatch || historical);
+    if (!record.excluded) {
+      if (needsReview) pending++;
+      if (sameBatch || historical) duplicates++;
+      if (sameBatch) batchDuplicate = true;
+      if (cents !== null) cents = validAmount ? cents + Math.round(Number(amount) * 100) : null;
+    }
+    const row = resultBody.rows[index];
+    row.classList.toggle("needs-attention", attention);
+    const pill = row.querySelector(".status-pill");
+    pill.textContent = record.excluded ? "已移出本次" : errors.size ? "字段待补充" :
+      sameBatch ? "本批号码重复" : historical ? "历史已报销" : needsConfirmation ? "待人工确认" : confirmed ? "已人工确认" : "已识别";
+    pill.className = `status-pill ${attention ? "warning" : "success"}`;
+    const reasons = [...errors.values()];
+    if (sameBatch) reasons.push("本批有相同发票号码，请对照票面更正号码或移出多余的发票");
+    if (historical) reasons.push("此号码已登记报销，可以打印，导出前请移出");
+    if (needsConfirmation) reasons.push(...(record.review_reasons || []));
+    const details = row.querySelector(".review-reasons");
+    details.textContent = record.excluded ? "" : reasons.join("；");
+    for (const input of row.querySelectorAll(".invoice-edit")) {
+      if (!record.excluded && errors.has(input.dataset.field)) {
+        input.setAttribute("aria-invalid", "true");
+        input.setAttribute("aria-describedby", details.id);
+      } else {
+        input.removeAttribute("aria-invalid");
+        input.removeAttribute("aria-describedby");
+      }
+    }
+    row.querySelector('input[type="checkbox"]').disabled = record.excluded || errors.size > 0;
+  });
+  const ready = active.length > 0 && pending === 0;
+  previewValid = ready && duplicates === 0;
+  exportButton.disabled = !previewValid || exportButton.classList.contains("loading");
+  registerButton.disabled = !previewValid || registeringHistory;
+  printButton.disabled = !ready || batchDuplicate || printButton.classList.contains("loading");
   summaryCards.replaceChildren();
   addSummaryCard("本次保留", `${active.length} 张`);
-  addSummaryCard("已删除", `${previewData.records.length - active.length} 张`);
-  const cents = active.reduce((sum, record) => sum + Math.round(Number(record.amount || 0) * 100), 0);
-  addSummaryCard("票面合计", Number.isFinite(cents) ? `¥ ${(cents / 100).toFixed(2)}` : "待补充");
-  previewData.records.forEach(record => {
-    const pill = resultBody.querySelector(`[data-record-id="${record.record_id}"] .status-pill`);
-    const duplicate = duplicates.includes(record);
-    pill.textContent = record.excluded ? "已移出本次" : duplicate ? "重复发票，请移除" : confirmedReviewIds.has(record.record_id) ? "已人工确认" : pending.includes(record) ? "请修改并确认" : "已识别";
-    pill.className = `status-pill ${!record.excluded && (duplicate || pending.includes(record)) ? "warning" : "success"}`;
-  });
+  addSummaryCard("已移出", `${previewData.records.length - active.length} 张`);
+  addSummaryCard("票面合计", cents === null ? "待补充" : `¥ ${(cents / 100).toFixed(2)}`);
+  filterReviewRows();
   if (previewValid) {
     resultBadge.textContent = "校验通过，可以导出";
     resultBadge.className = "result-badge success";
-  } else if (duplicates.length) {
-    resultBadge.textContent = `发现 ${duplicates.length} 张重复票，请移除；已报销记录仍可打印`;
-    resultBadge.className = "result-badge warning";
-  } else if (pending.length) {
-    resultBadge.textContent = `请完成 ${pending.length} 张发票的人工核对`;
-    resultBadge.className = "result-badge warning";
   } else {
-    resultBadge.textContent = "需要补充或人工核对";
+    resultBadge.textContent = [pending && `${pending} 张需补充或确认`, duplicates && `${duplicates} 张号码重复或已报销`]
+      .filter(Boolean).join(" · ") || "请至少保留一张发票";
     resultBadge.className = "result-badge warning";
   }
 }
@@ -471,7 +590,22 @@ async function exportInvoices() {
 }
 
 async function printInvoices() {
-  if (!previewData || !validateBeforeRequest(false)) return;
+  if (!previewData || printButton.disabled || !validateBeforeRequest(false)) return;
+  for (const field of [fields.claimant, fields.fill_date]) {
+    if (!field.value.trim()) {
+      showToast(field === fields.claimant ? "请先填写实报人姓名。" : "请先填写填报日期。", true);
+      field.focus();
+      return;
+    }
+  }
+  for (const input of document.querySelectorAll("#explanation-editors textarea")) {
+    if (!input.value.trim() || /请填写|【\s*】/.test(input.value)) {
+      input.setCustomValidity("请将模板提示改成实际用途或事由。");
+      input.focus();
+      input.reportValidity();
+      return;
+    }
+  }
 
   // 在点击事件中先创建窗口，避免异步生成 PDF 后被浏览器当作弹窗拦截。
   const printWindow = window.open("", "_blank");
@@ -515,69 +649,129 @@ async function printInvoices() {
     printWindow.close();
     showToast(error.message || "打印文件生成失败。", true);
   } finally {
-    printButton.disabled = !previewData;
     printButton.classList.remove("loading");
+    updateExportState();
   }
 }
 
+const historyPanel = document.querySelector("#history-panel");
+const historyBody = document.querySelector("#history-body");
+const historyKeyword = document.querySelector("#history-keyword");
+const historyStatus = document.querySelector("#history-status");
+let historyRequest;
+let historyIdentityVersion = 0;
+let registeringHistory = false;
+
+function historyOwner() {
+  return {student_id: fields.student_id.value.trim(), phone: fields.phone.value.trim(), version: historyIdentityVersion};
+}
+
+function isCurrentOwner(owner) {
+  return owner.version === historyIdentityVersion && owner.student_id === fields.student_id.value.trim()
+    && owner.phone === fields.phone.value.trim();
+}
+
+function clearVisibleHistory() {
+  historyIdentityVersion++;
+  historyRequest?.abort();
+  historyPanel.hidden = true;
+  historyBody.replaceChildren();
+  historyStatus.textContent = historyKeyword.value = "";
+}
+
 async function registerHistory() {
-  if (!previewValid || !validateBeforeRequest(true)) return;
+  if (registeringHistory || !previewValid || !validateBeforeRequest(true)) return;
   if (!window.confirm("确认这些发票已经报销？登记后再次上传将提醒重复。误登记可在历史中撤销。")) return;
+  const owner = historyOwner();
+  const batch = previewData;
+  const submitted = batch.records.filter(record => !record.excluded)
+    .map(record => [record, record.invoice_number.trim()]);
+  registeringHistory = true;
   registerButton.disabled = true;
   try {
     const response = await fetch("/v1/invoices/history/register", {method: "POST", body: buildFormData(true)});
     if (!response.ok) throw new Error(await parseError(response));
     const payload = await response.json();
-    previewData.records.filter(record => !record.excluded).forEach(record => {
+    if (!isCurrentOwner(owner) || previewData !== batch) return;
+    for (const [record, number] of submitted) {
       record.duplicate_history = true;
-      record.original_invoice_number = record.invoice_number;
-    });
+      record.original_invoice_number = number;
+    }
     updateExportState();
     showToast(`已登记 ${payload.registered_count} 张发票。`);
-    await loadHistory();
-  } catch (error) { showToast(error.message || "登记失败。", true); updateExportState(); }
+    await loadHistory(true);
+  } catch (error) {
+    if (isCurrentOwner(owner) && previewData === batch) showToast(error.message || "登记失败。", true);
+  } finally {
+    registeringHistory = false;
+    updateExportState();
+  }
 }
 
-async function loadHistory() {
-  const identity = {student_id: fields.student_id.value.trim(), phone: fields.phone.value.trim()};
-  if (!identity.student_id || !identity.phone) return showToast("请先填写学号和电话，用于查询你的历史。", true);
+async function loadHistory(scrollToResults = false) {
+  const owner = historyOwner();
+  if (!owner.student_id || !owner.phone) {
+    clearVisibleHistory();
+    return showToast("请先填写学号和电话，用于查询你的历史。", true);
+  }
+  historyRequest?.abort();
+  const request = new AbortController();
+  historyRequest = request;
+  const keyword = historyKeyword.value.trim();
+  const identity = {student_id: owner.student_id, phone: owner.phone};
+  historyBody.replaceChildren();
+  historyPanel.hidden = false;
+  historyStatus.textContent = "正在查询报销历史…";
+  if (scrollToResults) historyPanel.scrollIntoView({behavior: "smooth", block: "start"});
   try {
     const response = await fetch("/v1/invoices/history/query", {
-      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(identity),
+      method: "POST", headers: {"Content-Type": "application/json"}, signal: request.signal,
+      body: JSON.stringify({...identity, keyword}), cache: "no-store",
     });
     if (!response.ok) throw new Error(await parseError(response));
     const data = await response.json();
-    const body = document.querySelector("#history-body"); body.replaceChildren();
+    if (request.signal.aborted || !isCurrentOwner(owner)) return;
     for (const record of data.records) {
       const row = document.createElement("tr");
-      [record.invoice_number, record.item_name, `¥ ${Number(record.amount).toFixed(2)}`, new Date(record.exported_at).toLocaleString()].forEach(value => {
+      [record.invoice_number, record.item_name, record.pdf_name, `¥ ${Number(record.amount).toFixed(2)}`, new Date(record.exported_at).toLocaleString()].forEach(value => {
         const cell = document.createElement("td"); cell.textContent = value; row.append(cell);
       });
       const actions = document.createElement("td");
       const undo = document.createElement("button"); undo.type = "button"; undo.className = "text-button"; undo.textContent = "撤销误登记";
       undo.addEventListener("click", async () => {
+        if (!isCurrentOwner(owner) || request.signal.aborted) return;
         if (!window.confirm(`撤销发票 ${record.invoice_number} 的报销登记？`)) return;
+        const batch = previewData;
+        undo.disabled = true;
         try {
           const response = await fetch("/v1/invoices/history/undo", {
             method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({...identity, invoice_number: record.invoice_number}),
           });
           if (!response.ok) throw new Error(await parseError(response));
-          if (previewData) {
-            previewData.records.filter(item => item.invoice_number === record.invoice_number).forEach(item => { item.duplicate_history = false; });
+          if (!isCurrentOwner(owner)) return;
+          if (batch && previewData === batch) {
+            batch.records.filter(item => item.original_invoice_number === record.invoice_number).forEach(item => { item.duplicate_history = false; });
             updateExportState();
           }
-          await loadHistory();
           showToast("已撤销误登记。");
-        } catch (error) { showToast(error.message, true); }
+          await loadHistory();
+        } catch (error) {
+          if (isCurrentOwner(owner)) showToast(error.message, true);
+        } finally { undo.disabled = false; }
       });
-      actions.append(undo); row.append(actions); body.append(row);
+      actions.append(undo); row.append(actions); historyBody.append(row);
     }
-    if (!data.records.length) {
-      const row = document.createElement("tr"); const cell = document.createElement("td"); cell.colSpan = 5; cell.textContent = "暂无已登记的报销记录。"; row.append(cell); body.append(row);
+    const count = data.records.length;
+    if (count) {
+      const label = keyword ? `“${keyword}”的搜索结果` : "最近登记";
+      historyStatus.textContent = `${label} · 显示 ${count} 条`;
+      if (count === 300) historyStatus.textContent += "，可输入更完整的关键词缩小范围。";
+    } else {
+      historyStatus.textContent = keyword ? `没有找到含“${keyword}”的报销记录。` : "暂无已登记的报销记录。";
     }
-    const panel = document.querySelector("#history-panel"); panel.hidden = false;
-    panel.scrollIntoView({behavior: "smooth", block: "start"});
-  } catch (error) { showToast(error.message || "历史查询失败。", true); }
+  } catch (error) {
+    if (!request.signal.aborted && isCurrentOwner(owner)) historyStatus.textContent = error.message || "历史查询失败，请重试。";
+  }
 }
 
 function saveProfile() {
@@ -663,18 +857,29 @@ form.addEventListener("submit", previewInvoices);
 exportButton.addEventListener("click", exportInvoices);
 printButton.addEventListener("click", printInvoices);
 registerButton.addEventListener("click", registerHistory);
-document.querySelector("#load-history").addEventListener("click", loadHistory);
-document.querySelector("#refresh-history").addEventListener("click", loadHistory);
+document.querySelector("#load-history").addEventListener("click", () => loadHistory(true));
+document.querySelector("#history-search").addEventListener("submit", event => {
+  event.preventDefault();
+  loadHistory();
+});
+[fields.student_id, fields.phone].forEach(input => input.addEventListener("input", clearVisibleHistory));
 document.querySelector("#save-profile").addEventListener("click", saveProfile);
 document.querySelector("#clear-profile").addEventListener("click", () => {
   localStorage.removeItem(profileKey);
   fields.claimant.value = "";
   fields.student_id.value = "";
   fields.phone.value = "";
+  clearVisibleHistory();
   profileMessage.textContent = "已清除当前浏览器保存的个人信息。";
   showToast("已清除保存的信息。")
 });
-fields.reimbursement_type.addEventListener("change", invalidatePreview);
+fields.reimbursement_type.addEventListener("change", () => {
+  if (!previewData) return;
+  for (const record of previewData.records) {
+    const row = resultBody.querySelector(`tr[data-record-id="${record.record_id}"]`);
+    refreshClassification(record, row.cells[3], row.cells[5]);
+  }
+});
 
 const today = new Date();
 const localToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000).toISOString().slice(0, 10);

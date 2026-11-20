@@ -218,12 +218,6 @@ def read_invoice(pdf_path: Path) -> InvoiceRecord:
     except Exception as error:
         reasons.append(f"PDF 读取失败：{type(error).__name__}: {error}")
 
-    filename_amount = re.search(r"_(\d+(?:\.\d{2}))_", pdf_path.name)
-    if amount is not None and filename_amount:
-        named_amount = Decimal(filename_amount.group(1))
-        if named_amount != amount:
-            reasons.append(f"票面金额 {amount:.2f} 与文件名金额 {named_amount:.2f} 不一致")
-
     return InvoiceRecord(
         pdf_name=pdf_path.name,
         invoice_number=invoice_number,

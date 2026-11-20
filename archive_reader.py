@@ -4,7 +4,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from decimal import Decimal
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from zipfile import ZipFile, ZipInfo
 
 
@@ -77,28 +77,35 @@ def inspect_archive(
     )
 
 
-def extract_pdfs(summary: ArchiveSummary, destination: Path) -> list[Path]:
-    """只解压 PDF，并拒绝路径穿越和重名覆盖。"""
-    destination.mkdir(parents=True, exist_ok=True)
-    outputs: list[Path] = []
-    used_names: set[str] = set()
+def staged_path(directory: Path, index: int, basename: str) -> Path:
+    """按序号隔离同名文件，使用 Windows 和 Docker 都能写入的临时文件名。"""
+    safe_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", basename)
+    # 留出合并 PDF 拆页后添加页码的空间。
+    safe_name = safe_name.encode("utf-8")[-210:].decode("utf-8", errors="ignore")
+    if PureWindowsPath(safe_name).is_reserved():
+        safe_name = "_" + safe_name
+    folder = directory / str(index)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder / safe_name
+
+
+def extract_pdf_entries(summary: ArchiveSummary, destination: Path) -> list[tuple[Path, str]]:
+    outputs: list[tuple[Path, str]] = []
 
     with ZipFile(summary.zip_path, metadata_encoding="gbk") as archive:
-        for info in summary.pdf_entries:
+        for index, info in enumerate(summary.pdf_entries, start=1):
             archive_name = info.filename.replace("\\", "/")
             pure = PurePosixPath(archive_name)
             if pure.is_absolute() or ".." in pure.parts:
                 raise ValueError(f"ZIP 中存在不安全路径：{info.filename}")
 
-            filename = pure.name
-            key = filename.casefold()
-            if key in used_names:
-                raise ValueError(f"ZIP 中存在同名 PDF：{filename}")
-            used_names.add(key)
-
-            target = destination / filename
+            target = staged_path(destination, index, pure.name)
             with archive.open(info) as source, target.open("wb") as output:
                 shutil.copyfileobj(source, output)
-            outputs.append(target)
+            outputs.append((target, archive_name))
 
-    return sorted(outputs, key=lambda path: path.name)
+    return sorted(outputs, key=lambda entry: entry[0].name)
+
+
+def extract_pdfs(summary: ArchiveSummary, destination: Path) -> list[Path]:
+    return [path for path, _ in extract_pdf_entries(summary, destination)]

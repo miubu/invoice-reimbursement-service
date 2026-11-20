@@ -185,6 +185,16 @@ tr.excluded { opacity: .55; background: #f2f4f7; }
 #invoice-dialog img { width: 100%; height: auto; }
 #invoice-dialog form { position: sticky; top: 0; text-align: right; }
 .result-heading { margin-bottom: 19px; }
+.review-tools { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 10px 0; background: var(--panel); }
+.review-tools label { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 13px; }
+.review-tools select { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--ink); font: inherit; }
+.review-tools button:disabled { opacity: .5; cursor: default; }
+#review-empty { margin: 0; padding: 18px; text-align: center; background: var(--soft); border-radius: 8px; }
+#result-body [aria-invalid="true"] { border-color: var(--red); }
+#result-body .invoice-edit, #result-body button, #result-body input[type="checkbox"] { scroll-margin-top: 135px; }
+@media (min-width: 621px) {
+  .review-tools { position: sticky; top: 68px; z-index: 2; }
+}
 .result-badge { border-radius: 999px; padding: 7px 11px; font-size: 12px; font-weight: 750; }
 .result-badge.success { color: var(--green); background: var(--green-soft); }
 .result-badge.warning { color: var(--amber); background: var(--amber-soft); }
@@ -214,6 +224,10 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 .manual-review-confirmation input { margin: 2px 0 0; flex: 0 0 auto; }
 .remarks-cell { color: var(--red); background: var(--red-soft); }
+#history-search { display: flex; align-items: end; gap: 8px; }
+#history-search .field { flex: 1; max-width: 28rem; }
+#history-search button { min-height: 43px; }
+#history-body td { overflow-wrap: anywhere; }
 .remarks-cell a, .remarks-cell span { color: var(--red); display: block; font-weight: 650; }
 .remarks-cell a + a, .remarks-cell a + span, .remarks-cell span + a, .remarks-cell span + span { margin-top: 6px; }
 

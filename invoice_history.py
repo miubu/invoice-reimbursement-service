@@ -60,14 +60,19 @@ def list_history(
     student_id: str,
     phone: str,
     db_path: Path = RULES_DB_PATH,
+    *,
+    keyword: str = "",
 ) -> list[dict[str, str]]:
     with closing(_connect(db_path)) as connection:
         rows = connection.execute(
             """SELECT invoice_number, invoice_date, pdf_name, item_name, amount, exported_at
                FROM invoice_history
-               WHERE student_id = ? AND phone = ?
-               ORDER BY exported_at DESC LIMIT 300""",
-            (student_id, phone),
+               WHERE student_id = :student_id AND phone = :phone
+                 AND (:keyword = '' OR instr(invoice_number, :keyword) > 0
+                      OR instr(lower(item_name), lower(:keyword)) > 0
+                      OR instr(lower(pdf_name), lower(:keyword)) > 0)
+               ORDER BY exported_at DESC, invoice_number DESC LIMIT 300""",
+            {"student_id": student_id, "phone": phone, "keyword": keyword.strip()},
         ).fetchall()
     return [dict(row) for row in rows]
 

@@ -3,13 +3,14 @@ from __future__ import annotations
 import re
 import base64
 import tempfile
+from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 
 from pypdf import PdfReader, PdfWriter
 
-from archive_reader import extract_pdfs, inspect_archive
+from archive_reader import extract_pdf_entries, inspect_archive
 from invoice_reader import InvoiceRecord, read_invoice, render_first_page
 from validator import ValidationResult, validate
 
@@ -79,7 +80,7 @@ def process_inputs(
 
     source_names = tuple(path.name for path in input_paths)
     non_pdf_entries: list[str] = []
-    pdf_sources: list[Path] = []
+    pdf_sources: list[tuple[Path, str]] = []
     declared_counts: list[int | None] = []
     uploaded_pdf_count = 0
     archive_count = 0
@@ -104,12 +105,15 @@ def process_inputs(
                     f"{path.name}：{entry}" for entry in archive.non_pdf_entries
                 )
                 extracted_dir = work_dir / f"archive_{source_index:03d}"
-                pdf_sources.extend(extract_pdfs(archive, extracted_dir))
+                pdf_sources.extend(
+                    (pdf, f"上传 {source_index} · {path.name} / {member}")
+                    for pdf, member in extract_pdf_entries(archive, extracted_dir)
+                )
                 uploaded_pdf_count += len(archive.pdf_entries)
             elif suffix == ".pdf":
                 uploaded_pdf_count += 1
                 uncompressed_total += path.stat().st_size
-                pdf_sources.append(path)
+                pdf_sources.append((path, f"上传 {source_index}"))
             else:
                 raise ValueError(f"不支持的文件类型：{path.name}")
 
@@ -118,9 +122,10 @@ def process_inputs(
                 raise ValueError(f"全部文件解压后总大小超过 {limit_mb} MB 限制。")
 
         page_paths: list[Path] = []
+        page_origins: list[str] = []
         split_errors: dict[Path, str] = {}
         split_pdf_names: list[str] = []
-        for pdf_index, pdf_path in enumerate(pdf_sources, start=1):
+        for pdf_index, (pdf_path, origin) in enumerate(pdf_sources, start=1):
             split_dir = work_dir / f"split_{pdf_index:03d}"
             try:
                 pages, was_split = _split_pdf_pages(pdf_path, split_dir)
@@ -131,11 +136,15 @@ def process_inputs(
             if was_split:
                 split_pdf_names.append(pdf_path.name)
             page_paths.extend(pages)
+            page_origins.extend([origin] * len(pages))
             if len(page_paths) > max_pdf_count:
                 raise ValueError(f"拆页后发票页数超过限制 {max_pdf_count}。")
 
         records = tuple(read_invoice(path) for path in page_paths)
-        for record, path in zip(records, page_paths, strict=True):
+        name_counts = Counter(path.name.casefold() for path in page_paths)
+        for index, (record, path, origin) in enumerate(zip(records, page_paths, page_origins, strict=True), start=1):
+            if name_counts[path.name.casefold()] > 1:
+                record.pdf_name = f"{record.pdf_name}（本批第 {index} 张，{origin}）"
             if path in split_errors:
                 record.needs_review = True
                 record.review_reasons.append(split_errors[path])
