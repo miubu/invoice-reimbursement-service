@@ -4,9 +4,38 @@ from __future__ import annotations
 import io
 import json
 import os
+import secrets
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+
+def check_image_settings(client, auth: tuple[str, str]) -> None:
+    from PIL import Image
+
+    site = client.get("/v1/site").json()
+    texts = dict(site["texts"], site_name="保留我的站点名称")
+    assert client.put("/v1/admin/site", json={"texts": texts}, auth=auth).is_success
+    url = "/v1/admin/site/image"
+    layout = {"fit": "cover", "zoom": 175, "x": 35, "y": 80}
+    assert site["assets"]["hero"] is None
+    assert client.put(f"{url}/hero/layout", json=layout, auth=auth).is_success
+    assert client.get("/v1/site").json()["image_layouts"]["hero"] == layout
+
+    image = io.BytesIO()
+    Image.new("RGB", (64, 48), "blue").save(image, "PNG")
+    options = {"slot": "logo", "layout": json.dumps(layout)}
+    files = {"image": ("logo.png", image.getvalue(), "image/png")}
+    assert client.post(url, data=options, files=files, auth=auth).is_success
+    saved = client.get("/v1/site").json()
+    assert saved["image_layouts"]["logo"] == layout and saved["texts"] == texts
+    assert client.get(saved["assets"]["logo"]).is_success
+
+    assert client.put(f"{url}/logo/layout", json=dict(layout, zoom=251), auth=auth).status_code == 422
+    invalid = {"image": ("broken.png", b"unreadable", "image/png")}
+    changed = dict(options, layout=json.dumps(dict(layout, zoom=110)))
+    assert client.post(url, data=changed, files=invalid, auth=auth).status_code == 422
+    assert client.get("/v1/site").json() == saved
 
 
 def main() -> None:
@@ -17,6 +46,8 @@ def main() -> None:
         directory = Path(temporary)
         os.environ["RULES_DB_PATH"] = str(directory / "check.db")
         os.environ["SITE_ASSET_DIR"] = str(directory / "assets")
+        os.environ["ADMIN_USERNAME"] = "check-only"
+        os.environ["ADMIN_PASSWORD"] = secrets.token_urlsafe(24)
 
         from fastapi.testclient import TestClient
         from openpyxl import load_workbook
@@ -77,6 +108,7 @@ def main() -> None:
         assert len(prepared) == 1 and "19.49" in prepared[0]["details"]
 
         with TestClient(app) as client:
+            check_image_settings(client, (os.environ["ADMIN_USERNAME"], os.environ["ADMIN_PASSWORD"]))
             form = {"edits": json.dumps(edits), "reimbursement_type": "材料费",
                     "claimant": "检查用户", "student_id": "CHECK-ONLY", "phone": "CHECK-PHONE",
                     "fill_date": "2026-10-20", "explanations": json.dumps(notes)}

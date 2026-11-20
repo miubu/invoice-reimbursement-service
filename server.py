@@ -17,7 +17,7 @@ from urllib.parse import quote
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from excel_writer import ReimbursementProfile, build_excel_bytes
 from invoice_history import find_history, list_history, save_history, undo_history
@@ -38,9 +38,11 @@ from rule_files import download_name, resolve_rule_file, save_rule_file
 from site_settings import (
     ASSET_DIR,
     SITE_ASSET_SLOTS,
+    ImageLayout,
     delete_site_image,
     save_site_image,
     site_payload,
+    update_image_layout,
     update_site_texts,
 )
 
@@ -127,7 +129,7 @@ class JobLimiter:
 limiter = JobLimiter(MAX_CONCURRENT_JOBS, MAX_QUEUED_JOBS, QUEUE_TIMEOUT_SECONDS)
 app = FastAPI(
     title="电子发票报销填报服务",
-    version="4.0.0",
+    version="4.1.0",
     description="上传一个或多个电子发票 PDF/ZIP，预览票面原文字段、下载 Excel，或合并发票和说明文件后一键打印。金额合计不再核销。",
 )
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
@@ -709,6 +711,7 @@ async def admin_update_site(
 async def admin_upload_site_image(
     slot: str = Form(...),
     image: UploadFile = File(...),
+    layout: str | None = Form(default=None),
     authorization: str | None = Header(default=None),
 ) -> dict:
     _require_admin(authorization)
@@ -718,7 +721,23 @@ async def admin_upload_site_image(
     content = await image.read(5 * 1024 * 1024 + 1)
     await image.close()
     try:
-        save_site_image(slot, content)
+        framing = ImageLayout.model_validate_json(layout) if layout is not None else None
+    except ValidationError as error:
+        raise HTTPException(status_code=422, detail="图片构图参数无效，请检查显示方式、缩放和位置。") from error
+    try:
+        await asyncio.to_thread(save_site_image, slot, content, layout=framing)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    return site_payload()
+
+
+@app.put("/v1/admin/site/image/{slot}/layout")
+def admin_update_image_layout(
+    slot: str, layout: ImageLayout, authorization: str | None = Header(default=None),
+) -> dict:
+    _require_admin(authorization)
+    try:
+        update_image_layout(slot, layout)
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
     return site_payload()

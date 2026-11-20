@@ -6,8 +6,9 @@
   <meta name="robots" content="noindex,nofollow">
   <title>管理后台 · 电子发票报销填报</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/styles.css?v=4.0.0">
-  <link rel="stylesheet" href="/assets/admin.css?v=4.0.0">
+  <link rel="stylesheet" href="/assets/styles.css?v=4.1.0">
+  <link rel="stylesheet" href="/assets/site-image.css?v=4.1.0">
+  <link rel="stylesheet" href="/assets/admin.css?v=4.1.0">
 </head>
 <body class="admin-body">
   <header class="topbar">
@@ -20,9 +21,8 @@
 
   <main class="admin-shell">
     <section id="login-panel" class="panel login-panel">
-      <p class="eyebrow">ADMIN ACCESS</p>
       <h1>登录管理后台</h1>
-      <p>管理账号只用于修改服务器配置，不影响普通用户上传发票。</p>
+      <p>登录后可编辑界面图片、报销规则和首页文案。</p>
       <form id="login-form" class="login-form">
         <label class="field"><span>账号</span><input id="admin-username" value="admin" autocomplete="username" required></label>
         <label class="field"><span>密码</span><input id="admin-password" type="password" autocomplete="current-password" required></label>
@@ -33,30 +33,59 @@
 
     <div id="admin-console" hidden>
       <div class="admin-heading">
-        <div><p class="eyebrow">CONTROL PANEL</p><h1>服务内容管理</h1></div>
-        <span>修改后立即对新请求生效</span>
+        <h1>服务内容管理</h1>
+        <nav aria-label="后台设置导航"><a href="#images">界面图片</a><a href="#rules">报销规则</a><a href="#texts">界面文案</a></nav>
       </div>
 
-      <section class="panel">
-        <div class="section-heading"><div><span class="step">01</span><h2>报销识别规则</h2></div><span class="muted">项目名称包含任一关键词即命中</span></div>
+      <section id="images" class="panel">
+        <div class="section-heading"><h2>界面图片</h2><span class="muted">PNG / JPEG / WebP · 单张最多 5 MB</span></div>
+        <div id="image-manager" class="image-manager"></div>
+      </section>
+
+      <section id="rules" class="panel">
+        <div class="section-heading"><h2>报销识别规则</h2><span class="muted">项目名称包含任一关键词即命中</span></div>
         <div class="rule-toolbar"><span>只有“关键词”参与发票匹配，规则名称仅作管理员标签。</span><button id="new-rule" class="button primary" type="button"><span>＋ 新建规则</span></button></div>
         <div id="rule-list" class="rule-list"></div>
         <div class="admin-actions"><button id="save-rules" class="button primary" type="button"><span>保存全部规则</span></button></div>
       </section>
 
-      <section class="panel">
-        <div class="section-heading"><div><span class="step">02</span><h2>界面文案</h2></div><span class="muted">修改用户首页显示的文字</span></div>
+      <section id="texts" class="panel">
+        <div class="section-heading"><h2>界面文案</h2><span class="muted">修改用户首页显示的文字</span></div>
         <div id="site-text-fields" class="site-text-grid"></div>
         <div class="admin-actions"><button id="save-site-texts" class="button primary" type="button"><span>保存界面文案</span></button></div>
       </section>
 
-      <section class="panel">
-        <div class="section-heading"><div><span class="step">03</span><h2>界面图片</h2></div><span class="muted">PNG / JPEG / WebP，单张不超过 5 MB</span></div>
-        <div id="image-manager" class="image-manager"></div>
-      </section>
     </div>
   </main>
+  <template id="image-editor-template">
+    <fieldset class="image-card">
+      <legend class="image-heading"></legend>
+      <div class="image-stage">
+        <div class="image-frame"><span>使用默认外观</span></div>
+      </div>
+      <div class="image-source">
+        <input class="image-file" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" hidden>
+        <button type="button" class="text-button image-choose">选择图片</button>
+        <button type="button" class="text-button subtle image-remove">移除图片</button>
+      </div>
+      <fieldset class="image-adjust">
+        <legend>取景</legend>
+        <p class="image-hint">拖动预览图可移动位置，也可用滑块微调。</p>
+        <label class="image-fit">显示方式<select><option value="contain">完整显示</option><option value="cover">铺满画框</option></select></label>
+        <label class="image-range">缩放<input type="range" data-key="zoom" min="100" max="250"><output></output></label>
+        <label class="image-range">水平位置<input type="range" data-key="x" min="0" max="100"><output></output></label>
+        <label class="image-range">垂直位置<input type="range" data-key="y" min="0" max="100"><output></output></label>
+        <button type="button" class="image-reset">恢复默认取景</button>
+      </fieldset>
+      <p class="image-status" role="status"></p>
+      <div class="image-actions">
+        <button type="button" class="text-button subtle image-cancel">撤销修改</button>
+        <button type="button" class="button primary image-save">保存图片设置</button>
+      </div>
+    </fieldset>
+  </template>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/assets/admin.js?v=4.0.0" defer></script>
+  <script src="/assets/site-image.js?v=4.1.0" defer></script>
+  <script src="/assets/admin.js?v=4.1.0" defer></script>
 </body>
 </html>

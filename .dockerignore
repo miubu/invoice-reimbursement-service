@@ -7,6 +7,8 @@ node_modules
 *.py[cod]
 preview
 output
+tmp
+data
 tests
 *.xlsx
 *.zip

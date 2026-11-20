@@ -6,22 +6,22 @@
   <meta name="description" content="上传电子发票 PDF 或 ZIP，核对票面字段并生成报销 Excel。">
   <title>电子发票报销填报</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/styles.css?v=4.0.0">
+  <link rel="stylesheet" href="/assets/styles.css?v=4.1.0">
+  <link rel="stylesheet" href="/assets/site-image.css?v=4.1.0">
 </head>
-<body>
+<body class="workspace">
   <header class="topbar">
-    <a class="brand" href="/" aria-label="电子发票报销填报首页">
-      <span class="brand-mark" aria-hidden="true"><img id="site-logo" alt="" hidden><b id="logo-fallback">票</b></span>
+    <a class="brand" href="/">
+      <span id="site-logo" data-slot="logo" class="site-image-frame brand-mark" aria-hidden="true"><b>票</b></span>
       <span>
         <strong id="site-name">电子发票报销填报</strong>
         <small id="site-tagline">票面原文识别 · 多文件导出</small>
       </span>
     </a>
-    <div class="header-actions">
-      <span class="status-dot"><i></i>服务在线</span>
-      <a href="/admin">管理后台</a>
+    <nav class="header-actions" aria-label="网站导航">
       <a href="/docs" target="_blank" rel="noreferrer">接口文档</a>
-    </div>
+      <a class="admin-link" href="/admin">管理后台</a>
+    </nav>
   </header>
 
   <main class="page-shell">
@@ -31,20 +31,21 @@
         <h1 id="hero-title">把发票放进来，确认后下载 Excel</h1>
         <p id="hero-description">支持同时拖入多个 PDF 或 ZIP。合并 PDF 会按页拆开发票；项目名称和规格型号无法可靠识别时会提示人工核对，绝不自行补写。</p>
       </div>
-      <img id="hero-image" class="hero-image" alt="首页展示图" hidden>
+      <div id="hero-image" data-slot="hero" class="site-image-frame hero-image" aria-hidden="true">
+        <img class="hero-fallback" src="/assets/invoice-desk.webp" alt="" width="720" height="480">
+      </div>
     </section>
 
     <form id="invoice-form" novalidate>
       <section class="panel upload-panel" aria-labelledby="upload-title">
         <div class="section-heading">
           <div>
-            <span class="step">01</span>
             <h2 id="upload-title">选择发票文件</h2>
           </div>
-          <span class="muted">PDF / ZIP · 可多选 · 总计不超过 50 MB</span>
+          <span class="muted">PDF / ZIP</span>
         </div>
 
-        <label id="drop-zone" class="drop-zone" for="file-input" tabindex="0">
+        <label id="drop-zone" class="drop-zone" for="file-input" role="button" tabindex="0">
           <input id="file-input" type="file" accept=".pdf,.zip,application/pdf,application/zip" multiple hidden>
           <span class="upload-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" role="img"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5v3A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-3"/></svg>
@@ -53,21 +54,16 @@
           <span id="upload-secondary">可一次选择四五张 PDF，也可以混合选择 PDF 和 ZIP</span>
         </label>
 
-        <div id="file-empty" class="file-empty">尚未选择文件</div>
-        <ul id="file-list" class="file-list" aria-live="polite"></ul>
+        <p id="file-summary" class="file-summary" role="status"></p>
+        <ul id="file-list" class="file-list" aria-label="已选择文件"></ul>
       </section>
 
       <section class="panel" aria-labelledby="profile-title">
         <div class="section-heading">
           <div>
-            <span class="step">02</span>
             <h2 id="profile-title">填写报销信息</h2>
           </div>
-          <div class="profile-actions">
-            <button id="load-history" class="text-button" type="button">查看我的报销历史</button>
-            <button id="save-profile" class="text-button" type="button">保存我的信息</button>
-            <button id="clear-profile" class="text-button subtle" type="button">清除保存</button>
-          </div>
+          <button id="load-history" class="text-button subtle" type="button">我的报销历史</button>
         </div>
 
         <div class="form-grid">
@@ -77,7 +73,7 @@
           </label>
           <label class="field">
             <span>学号 <b>*</b></span>
-            <input id="student-id" name="student_id" inputmode="numeric" autocomplete="off" maxlength="50" placeholder="按文本写入 Excel" required>
+            <input id="student-id" name="student_id" inputmode="numeric" autocomplete="off" maxlength="50" placeholder="请输入学号" required>
           </label>
           <label class="field">
             <span>电话 <b>*</b></span>
@@ -99,7 +95,7 @@
               <option value="对公转账">对公转账</option>
               <option value="其他">其他</option>
             </select>
-            <small>默认为材料费；命中管理规则时会自动调整。</small>
+            <small>匹配规则时自动调整</small>
           </label>
           <label class="field">
             <span>是否传递发票 <b>*</b></span>
@@ -108,6 +104,10 @@
               <option value="NO">NO</option>
             </select>
           </label>
+        </div>
+        <div class="profile-actions">
+          <button id="save-profile" class="text-button" type="button">保存我的信息</button>
+          <button id="clear-profile" class="text-button subtle" type="button">清除保存</button>
         </div>
         <p id="profile-message" class="inline-message" role="status"></p>
       </section>
@@ -118,7 +118,7 @@
           <span id="action-description">预览会显示每张发票的票面原文字段和校验状态。</span>
         </div>
         <div class="button-row">
-          <button id="preview-button" class="button secondary" type="submit">
+          <button id="preview-button" class="button primary" type="submit">
             <span id="preview-button-text">识别并预览</span>
           </button>
         </div>
@@ -128,7 +128,6 @@
     <section id="result-panel" class="panel result-panel" aria-labelledby="result-title" hidden>
       <div class="section-heading result-heading">
         <div>
-          <span class="step">03</span>
           <h2 id="result-title">识别结果</h2>
         </div>
         <span id="result-badge" class="result-badge"></span>
@@ -178,6 +177,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <dialog id="invoice-dialog" aria-label="发票票面"><form method="dialog"><button class="text-button">关闭</button></form><img id="invoice-image" alt="原始发票票面"></dialog>
-  <script src="/assets/app.js?v=4.0.0" defer></script>
+  <script src="/assets/site-image.js?v=4.1.0" defer></script>
+  <script src="/assets/app.js?v=4.1.0" defer></script>
 </body>
 </html>

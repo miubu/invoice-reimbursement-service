@@ -2,7 +2,7 @@ const form = document.querySelector("#invoice-form");
 const fileInput = document.querySelector("#file-input");
 const dropZone = document.querySelector("#drop-zone");
 const fileList = document.querySelector("#file-list");
-const fileEmpty = document.querySelector("#file-empty");
+const fileSummary = document.querySelector("#file-summary");
 const previewButton = document.querySelector("#preview-button");
 const exportButton = document.querySelector("#export-button");
 const printButton = document.querySelector("#print-button");
@@ -27,6 +27,7 @@ const profileKey = "invoice-reimbursement-profile-v1";
 let selectedFiles = [];
 let previewValid = false;
 let previewData = null;
+let previewRequest;
 let confirmedReviewIds = new Set();
 let explanationNotes = new Map();
 let toastTimer;
@@ -49,6 +50,7 @@ function fileKey(file) {
 }
 
 function invalidatePreview() {
+  previewRequest?.abort();
   previewValid = false;
   previewData = null;
   confirmedReviewIds.clear();
@@ -61,6 +63,7 @@ function invalidatePreview() {
 function addFiles(files) {
   const allowed = [".pdf", ".zip"];
   const existing = new Set(selectedFiles.map(fileKey));
+  const previousCount = selectedFiles.length;
   let rejected = 0;
   for (const file of files) {
     const suffix = file.name.slice(file.name.lastIndexOf(".")).toLowerCase();
@@ -74,13 +77,18 @@ function addFiles(files) {
     }
   }
   if (rejected) showToast(`已忽略 ${rejected} 个非 PDF/ZIP 文件。`, true);
-  invalidatePreview();
-  renderFiles();
+  if (selectedFiles.length !== previousCount) {
+    invalidatePreview();
+    renderFiles();
+  } else if (files.length && !rejected) {
+    showToast("所选文件已在列表中。");
+  }
 }
 
 function renderFiles() {
   fileList.replaceChildren();
-  fileEmpty.hidden = selectedFiles.length > 0;
+  const totalBytes = selectedFiles.reduce((sum, file) => sum + file.size, 0);
+  fileSummary.textContent = selectedFiles.length ? `已选 ${selectedFiles.length} 个文件 · ${formatSize(totalBytes)}` : "";
   selectedFiles.forEach((file, index) => {
     const item = document.createElement("li");
     item.className = "file-item";
@@ -184,10 +192,6 @@ function renderResult(data) {
   summaryCards.replaceChildren();
   resultNotices.replaceChildren();
   resultBody.replaceChildren();
-
-  addSummaryCard("上传文件", `${data.input_count} 个`);
-  addSummaryCard("识别发票页", `${data.pdf_count} 页`);
-  addSummaryCard("票面合计", data.amount_total ? `¥ ${data.amount_total}` : "无法计算");
 
   if (data.split_pdf_names?.length) {
     addNotice(`已将合并 PDF 按页拆分：${data.split_pdf_names.join("、")}`, "info");
@@ -411,23 +415,30 @@ async function previewInvoices(event) {
   event.preventDefault();
   if (!validateBeforeRequest(false)) return;
   invalidatePreview();
+  const request = new AbortController();
+  previewRequest = request;
   previewButton.disabled = true;
   previewButton.classList.add("loading");
   try {
     const response = await fetch("/v1/invoices/preview", {
       method: "POST",
       body: buildFormData(false),
+      signal: request.signal,
     });
     if (!response.ok) throw new Error(await parseError(response));
     const data = await response.json();
     renderResult(data);
     showToast(`识别完成：共 ${data.pdf_count} 个发票页。`);
   } catch (error) {
+    if (request.signal.aborted) return;
     invalidatePreview();
     showToast(error.message || "识别失败。", true);
   } finally {
-    previewButton.disabled = false;
-    previewButton.classList.remove("loading");
+    if (previewRequest === request) {
+      previewRequest = null;
+      previewButton.disabled = false;
+      previewButton.classList.remove("loading");
+    }
   }
 }
 
@@ -622,19 +633,8 @@ async function loadSiteSettings() {
     });
     if (site.texts?.site_name) document.title = site.texts.site_name;
 
-    const logo = document.querySelector("#site-logo");
-    const logoFallback = document.querySelector("#logo-fallback");
-    if (site.assets?.logo) {
-      logo.src = site.assets.logo;
-      logo.hidden = false;
-      logoFallback.hidden = true;
-    }
-    const heroImage = document.querySelector("#hero-image");
-    if (site.assets?.hero) {
-      heroImage.src = site.assets.hero;
-      heroImage.hidden = false;
-      document.querySelector(".hero").classList.add("has-image");
-    }
+    SiteImage.render(document.querySelector("#site-logo"), site.assets?.logo, site.image_layouts?.logo);
+    SiteImage.render(document.querySelector("#hero-image"), site.assets?.hero || "/assets/invoice-desk.webp", site.image_layouts?.hero);
   } catch {
     // 管理配置加载失败时保留页面内置文案，不影响发票处理。
   }

@@ -1,0 +1,29 @@
+.site-image-frame {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.site-image-frame[data-slot="hero"] { aspect-ratio: 3 / 2; }
+.site-image-frame[data-slot="logo"] { aspect-ratio: 1; }
+.site-image-frame[data-has-image="true"] { background: #fff; }
+.site-image-frame[data-has-image="true"] > :not(.site-image-content) { display: none; }
+
+.site-image-frame > img.site-image-content {
+  display: block;
+  position: absolute;
+  left: var(--image-x);
+  top: var(--image-y);
+  width: var(--image-size);
+  height: var(--image-size);
+  max-width: none;
+  max-height: none;
+  transform: translate(calc(0% - var(--image-x)), calc(0% - var(--image-y)));
+  object-fit: var(--image-fit);
+  object-position: var(--image-x) var(--image-y);
+  pointer-events: none;
+  user-select: none;
+  visibility: hidden;
+}
+
+.site-image-frame[data-has-image="true"] > img.site-image-content { visibility: visible; }
