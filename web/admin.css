@@ -26,6 +26,17 @@
 .site-text-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .site-text-grid .wide { grid-column: 1 / -1; }
 .admin-actions { display: flex; justify-content: flex-end; margin-top: 20px; }
+.notice-page-choice { max-width: 260px; margin-bottom: 18px; }
+.notice-editor { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 24px; }
+.notice-editor[hidden] { display: none; }
+.notice-fields { display: grid; gap: 12px; }
+.notice-fields textarea { line-height: 1.7; }
+.notice-sample { min-width: 0; padding: 20px 24px; border: 1px solid #cadad2; border-radius: 14px; background: #f4f9f6; }
+.notice-sample > span { color: #3b6759; font-size: 12px; font-weight: 700; }
+.notice-sample h3 { margin: 14px 0 10px; font-size: 20px; line-height: 1.35; overflow-wrap: anywhere; }
+.notice-sample p { margin: 0; max-height: 18em; overflow-y: auto; overflow-wrap: anywhere; white-space: pre-wrap; line-height: 1.75; }
+.notice-footer { grid-column: 1 / -1; display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 12px; }
+.notice-footer span { font-size: 13px; color: var(--muted); }
 .image-manager { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
 .image-card { min-width: 0; margin: 0; border: 1px solid var(--line); border-radius: 16px; padding: clamp(14px, 2vw, 22px); background: var(--panel); }
 .image-heading { float: left; width: 100%; margin: 0 0 14px; padding: 0; font-size: 16px; font-weight: 750; }
@@ -61,6 +72,7 @@
   .admin-shell { width: min(100% - 24px, 1120px); padding-top: 28px; }
   .admin-heading { align-items: start; flex-direction: column; gap: 8px; }
   .rule-grid, .site-text-grid, .image-manager { grid-template-columns: 1fr; }
+  .notice-editor { grid-template-columns: 1fr; }
   .rule-toolbar { align-items: stretch; flex-direction: column; }
   .rule-toolbar .button { width: 100%; }
   .rule-file-controls { align-items: stretch; flex-direction: column; }

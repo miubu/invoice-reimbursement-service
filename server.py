@@ -4,6 +4,7 @@ import asyncio
 import base64
 import binascii
 import json
+import mimetypes
 import os
 import re
 import secrets
@@ -40,7 +41,11 @@ from site_settings import (
     ASSET_DIR,
     SITE_ASSET_SLOTS,
     ImageLayout,
+    NoticePage,
+    NoticeText,
     delete_site_image,
+    get_notice,
+    save_notice,
     save_site_image,
     site_payload,
     update_image_layout,
@@ -133,11 +138,15 @@ class JobLimiter:
 
 limiter = JobLimiter(MAX_CONCURRENT_JOBS, MAX_QUEUED_JOBS, QUEUE_TIMEOUT_SECONDS)
 app = FastAPI(
-    title="电子发票报销填报服务",
-    version="4.2.0",
+    title="报销工作台",
+    version="5.0.0",
     description="上传一个或多个电子发票 PDF/ZIP，预览票面原文字段、下载 Excel，或合并发票和说明文件后一键打印。金额合计不再核销。",
 )
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
+# Windows 和 Linux 均以模块脚本、WebAssembly 的正确类型提供差旅离线识别资源。
+mimetypes.add_type("text/javascript", ".mjs")
+mimetypes.add_type("application/wasm", ".wasm")
+app.mount("/travel", StaticFiles(directory=WEB_DIR / "travel", html=True), name="travel")
 
 
 def _require_admin(authorization: str | None) -> None:
@@ -372,6 +381,11 @@ def _validate_transmit_invoice(value: str) -> str:
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 async def home() -> HTMLResponse:
+    return HTMLResponse((WEB_DIR / "portal.html").read_text(encoding="utf-8"))
+
+
+@app.get("/invoices/", response_class=HTMLResponse, include_in_schema=False)
+async def invoice_home() -> HTMLResponse:
     return HTMLResponse((WEB_DIR / "index.html").read_text(encoding="utf-8"))
 
 
@@ -688,10 +702,22 @@ async def admin_delete_rule(
     return Response(status_code=204)
 
 
+@app.get("/v1/notices/{scope}")
+def read_notice(scope: NoticePage, response: Response) -> dict:
+    response.headers["Cache-Control"] = "no-store"
+    return get_notice(scope)
+
+
+@app.put("/v1/admin/notices/{scope}")
+def publish_notice(scope: NoticePage, body: NoticeText, authorization: str | None = Header(default=None)) -> dict:
+    _require_admin(authorization)
+    return save_notice(scope, body)
+
+
 @app.get("/v1/admin/site")
 async def admin_get_site(authorization: str | None = Header(default=None)) -> dict:
     _require_admin(authorization)
-    return site_payload()
+    return site_payload(include_notices=True)
 
 
 @app.put("/v1/admin/site")

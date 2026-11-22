@@ -11,4 +11,5 @@ tmp
 data
 tests
 *.xlsx
+!web/travel/template.xlsx
 *.zip

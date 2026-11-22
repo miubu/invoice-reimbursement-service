@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>差旅报销填报 · 报销工作台</title>
+  <meta name="description" content="填写出差信息、费用明细及打款信息，生成差旅报销表与打印附件。">
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css?v=5.0.0">
+  <link rel="stylesheet" href="/assets/notices.css?v=5.0.0">
+  <script defer src="/assets/notices.js?v=5.0.0"></script>
+  <script defer src="vendor/exceljs.min.js"></script>
+  <script defer src="vendor/tesseract.min.js"></script>
+  <script defer src="vendor/sha256.min.js"></script>
+  <script defer src="report.js?v=5.0.0"></script>
+  <script defer src="vendor/pdf-lib.min.js"></script>
+  <script defer src="vendor/jszip.min.js"></script>
+  <script defer src="print-bundle.js?v=5.0.0"></script>
+  <script defer src="attachments.js?v=5.0.0"></script>
+  <script defer src="invoice-inputs.js?v=5.0.0"></script>
+  <script defer src="app.js?v=5.0.0"></script>
+</head>
+<body data-notice-page="travel">
+<header class="travel-topbar">
+  <div class="brand"><span class="mark" aria-hidden="true">旅</span>差旅报销</div>
+  <nav class="travel-nav" aria-label="报销导航">
+    <a href="/">报销首页</a>
+    <a href="/invoices/">发票报销</a>
+    <button type="button" data-open-notice>报销注意事项</button>
+  </nav>
+</header>
+<main>
+<div class="heading travel-intro">
+  <h1>差旅报销填报单</h1>
+  <p>导入票据，填写行程和收款信息，即可导出报销表，并打印发票及凭证。</p>
+</div>
+<section class="upload-section" aria-labelledby="upload-title"><div class="section-head"><span class="number">▤</span><h2 id="upload-title">拖入发票，自动填写费用</h2><span class="section-note">本机识别 · 不上传文件</span></div><div id="dropzone" tabindex="0" role="button" aria-label="选择或拖入发票"><strong>将酒店、机票等发票拖到这里</strong><span>或点击选择 ZIP、PDF、JPG、PNG、WebP，可一次选择多个文件</span><small>ZIP 自动解压，多页 PDF 自动逐页识别和计数，无需手动拆分。识别结果请核对。</small><input id="invoice-files" type="file" accept=".zip,.pdf,.jpg,.jpeg,.png,.webp" multiple hidden></div><p id="ocr-status" role="status" aria-live="polite"></p><div class="table-footer"><button id="reidentify-invoices" type="button" class="add" disabled>重新识别已上传发票</button><span>会更新类别、金额、日期和住宿天数，请核对结果。</span></div></section>
+<section class="upload-section" aria-labelledby="attachments-title"><div class="section-head"><span class="number">▤</span><h2 id="attachments-title">凭证与附件</h2><span class="section-note" id="attachment-count">发票 0 个 · 凭证 0 个</span></div><div id="proof-dropzone" class="proof-dropzone" role="button" tabindex="0" aria-label="选择或拖入凭证"><strong>上传凭证</strong><span>拖入图片或 PDF，或点击选择文件</span><small>凭证不会计入费用。每个文件最多 20MB，附件合计最多 200MB。</small><input id="proof-files" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" multiple hidden></div><p id="attachment-empty">添加发票或凭证后，可在这里下载并打印全部附件。</p><ul id="attachment-list" class="attachment-list"></ul><div class="attachment-actions"><button id="download-originals" type="button" class="add" disabled>下载原始附件 ZIP</button><button id="download-print-pdf" type="button" class="add" disabled>下载合并打印 PDF</button><button id="print-attachments" type="button" class="print-button" disabled>预览并打印全部</button></div><p class="attachment-help">原文件按“发票／凭证”打包；打印 PDF 按 A4 每页两张排版，包含每个文件的全部页面，仅打印票据和凭证内容。附件保存在本机浏览器，刷新后可继续使用。</p><p id="attachment-status" role="status" aria-live="polite"></p></section>
+<form id="report" novalidate>
+<div class="workspace"><div class="sections">
+<section aria-labelledby="trip-title"><div class="section-head"><span class="number">01</span><h2 id="trip-title">出差信息</h2><span class="section-note">日期包含出发及返回当天</span></div>
+<div class="fields"><label><span class="label-text">出差起始日期 <b>*</b></span><input id="start" name="start" type="date" required></label><label><span class="label-text">出差终止日期 <b>*</b></span><input id="end" name="end" type="date" required></label><div class="date-count"><span>出差天数</span><strong id="days">—</strong><span>天</span></div><label class="wide"><span class="label-text">出差事由 <b>*</b></span><textarea id="reason" name="reason" rows="2" required maxlength="500" placeholder="例如：因项目需要，到廊坊市大厂县开展试验"></textarea></label><label class="wide"><span class="label-text">出差人姓名 <b>*</b></span><input id="names" name="names" required maxlength="200" placeholder="多人请用顿号隔开，如：张三、李四"><small>姓名之间用顿号“、”隔开，人数自动计算。个人信息自动保存，下次新建报销单无需重填。</small></label><label>出差人数<input id="people" value="0" readonly aria-label="自动计算的出差人数"></label><label><span class="label-text">职称职别 <b>*</b></span><select id="role" name="role" required><option value="">请选择</option><option>教授</option><option>副教授</option><option>博士后</option><option>学生</option></select></label><label class="wide"><span class="label-text">出差地点 <b>*</b></span><input id="destination" name="destination" required maxlength="100" placeholder="精确到市，如：河北省廊坊市"></label><label><span class="label-text">文件名中的地点 <b>*</b></span><input id="filePlace" name="filePlace" required maxlength="40" placeholder="如：廊坊"><small>导出文件名：姓名－地点－起始日期.xlsx</small></label></div><div class="table-footer"><button type="button" class="add" id="new-report">新建报销单（保留个人信息）</button></div>
+</section>
+<section aria-labelledby="expenses-title"><div class="section-head"><span class="number">02</span><h2 id="expenses-title">费用明细</h2><span class="section-note">金额填写票据含税总额</span></div><div class="notice">住宿费：教师和学生请分别开票、分别填写。其他费用可填写打车费、高速过路费等。</div><div class="table-scroll"><table class="expense-table"><thead><tr><th>类别</th><th>人数</th><th>费用发生日期</th><th>天数</th><th>票据张数</th><th>票据合计金额（元）</th><th>说明</th><th><span class="sr-only">操作</span></th></tr></thead><tbody id="expenses"></tbody></table></div><div class="table-footer"><button type="button" class="add" id="add-expense">＋ 添加费用</button><span>每笔费用填写一行，可添加多笔交通或住宿费用。</span></div></section>
+<section aria-labelledby="pay-title"><div class="section-head"><span class="number">03</span><h2 id="pay-title">打款信息</h2><span class="section-note">请仔细核对领款人信息</span></div><div class="table-scroll"><table class="pay-table"><thead><tr><th>序号</th><th>领款人</th><th>学号</th><th>电话</th><th>金额（元）</th><th><span class="sr-only">操作</span></th></tr></thead><tbody id="payments"></tbody></table></div><div class="table-footer"><button type="button" class="add" id="add-payment">＋ 添加领款人</button><span>打款金额合计需与费用合计一致。</span></div></section>
+</div><aside><div class="summary"><span class="eyebrow">本次报销</span><h2>金额核对</h2><div class="grand"><span>费用合计</span><strong id="expense-total">¥ 0.00</strong></div><div class="summary-line"><span>票据张数</span><strong id="ticket-total">0 张</strong></div><div class="summary-line"><span>打款合计</span><strong id="pay-total">¥ 0.00</strong></div><div class="difference"><span>待分配金额</span><strong id="difference">¥ 0.00</strong></div><div id="balance-note">填写费用与打款信息后核对。</div><hr><h3>导出前确认</h3><ul><li>日期、姓名、地点填写完整</li><li>每笔费用与票据金额一致</li><li>领款人、学号、电话核对无误</li></ul><button type="submit" class="export" id="export">下载 Excel 报销表</button><p class="privacy">信息仅用于当前页面生成文件，不上传填报内容。关闭或刷新页面后，请重新填写。</p><a class="template-link" href="template.xlsx" download="差旅报销空白模板.xlsx">下载空白模板</a></div><div id="status" role="status" aria-live="polite"></div></aside></div>
+</form><footer>浅蓝色区域为固定表头与填写提示，导出的白色区域保留可编辑。</footer>
+</main></body></html>

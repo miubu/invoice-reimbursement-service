@@ -45,6 +45,23 @@ def check_same_name_uploads(directory: Path) -> None:
     assert [pdf.read_bytes() for pdf in printable] == documents
 
 
+def check_portal_notices(client, auth: tuple[str, str]) -> None:
+    for path, scope in (("/", "home"), ("/invoices/", "invoice"), ("/travel/", "travel")):
+        page = client.get(path)
+        assert page.is_success and f'data-notice-page="{scope}"' in page.text
+    assert client.get("/travel/template.xlsx").content.startswith(b"PK")
+    assert "javascript" in client.get("/travel/vendor/pdf.min.mjs").headers["content-type"]
+
+    home = client.get("/v1/notices/home").json()
+    edited = {"title": "差旅须知", "body": "请核对行程。\n\n请附相关凭证。"}
+    url = "/v1/admin/notices/travel"
+    assert client.put(url, json=edited).status_code == 401
+    published = client.put(url, json=edited, auth=auth)
+    assert published.is_success and published.json()["body"] == edited["body"]
+    assert client.get("/v1/notices/travel").json() == published.json()
+    assert client.get("/v1/notices/home").json() == home
+
+
 def check_image_settings(client, auth: tuple[str, str]) -> None:
     from PIL import Image
 
@@ -150,7 +167,9 @@ def main() -> None:
         assert len(prepared) == 1 and "19.49" in prepared[0]["details"]
 
         with TestClient(app) as client:
-            check_image_settings(client, (os.environ["ADMIN_USERNAME"], os.environ["ADMIN_PASSWORD"]))
+            admin_auth = os.environ["ADMIN_USERNAME"], os.environ["ADMIN_PASSWORD"]
+            check_portal_notices(client, admin_auth)
+            check_image_settings(client, admin_auth)
             form = {"edits": json.dumps(edits), "reimbursement_type": "材料费",
                     "claimant": "检查用户", "student_id": "CHECK-ONLY", "phone": "CHECK-PHONE",
                     "fill_date": "2026-10-20", "explanations": json.dumps(notes)}

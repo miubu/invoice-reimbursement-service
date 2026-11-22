@@ -1,0 +1,75 @@
+.entry-notice {
+  --note-ink: #183937;
+  --note-paper: #fffefa;
+  box-sizing: border-box;
+  width: min(530px, calc(100% - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  border: 1px solid #d5dfd6;
+  border-radius: 20px;
+  background: var(--note-paper);
+  color: var(--note-ink);
+  box-shadow: 0 24px 80px rgb(9 29 28 / 25%);
+  font: 15px/1.7 "Microsoft YaHei", system-ui, sans-serif;
+  text-align: left;
+  overflow: hidden;
+}
+.entry-notice::backdrop { background: rgb(17 39 38 / 54%); backdrop-filter: blur(4px); }
+.entry-notice-layout { display: flex; flex-direction: column; max-height: calc(100dvh - 36px); }
+.entry-notice .entry-notice-heading {
+  position: static;
+  display: block;
+  height: auto;
+  max-height: 42dvh;
+  overflow: auto;
+  flex: none;
+  padding: 25px clamp(20px, 5vw, 34px) 23px;
+  margin: 0;
+  color: #fff;
+  background: linear-gradient(100deg, #163936 42%, rgb(22 57 54 / 89%) 62%, rgb(22 57 54 / 36%)),
+              url("/assets/invoice-desk.webp") right 56% / cover;
+  border: 0;
+}
+.entry-notice-page { color: #c8e3d8; font-size: 12px; letter-spacing: .06em; font-weight: 650; }
+.entry-notice h2 {
+  margin: 6px 0 0;
+  font: 650 clamp(22px, 4vw, 30px)/1.35 "Microsoft YaHei", system-ui, sans-serif;
+  letter-spacing: .01em;
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+.entry-notice h2:focus { outline: none; }
+.entry-notice .entry-notice-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 22px clamp(20px, 5vw, 34px);
+  color: #2d4441;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.entry-notice-body p { margin: 0; font: inherit; color: inherit; }
+.entry-notice-body p + p { margin-top: 1em; }
+.entry-notice .entry-notice-actions {
+  display: flex; align-items: center; justify-content: flex-end; gap: 12px;
+  flex: none;
+  margin: 0; padding: 14px clamp(20px, 5vw, 34px);
+  border: 0; border-top: 1px solid #e1e5dc;
+  background: #f6f7f0;
+}
+.entry-notice-actions button {
+  min-height: 42px; margin: 0; padding: 9px 18px; width: auto;
+  border: 0; border-radius: 9px; font: inherit; font-size: 14px; line-height: 1.4;
+  font-weight: 650; color: #fff; background: #17645a; cursor: pointer;
+}
+.entry-notice-actions .entry-notice-retry { background: transparent; color: #22655a; }
+.entry-notice-actions button:disabled { opacity: .55; cursor: wait; }
+.entry-notice-actions button:focus-visible, .entry-notice-body:focus-visible { outline: 2px solid #23796e; outline-offset: -3px; }
+.entry-notice-actions button[hidden] { display: none; }
+@media (max-height: 500px) {
+  .entry-notice .entry-notice-heading, .entry-notice .entry-notice-body, .entry-notice .entry-notice-actions { padding-block: 10px; }
+}
+@media print {
+  .entry-notice, .entry-notice::backdrop, [data-open-notice] { display: none !important; }
+}

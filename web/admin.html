@@ -4,25 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex,nofollow">
-  <title>管理后台 · 电子发票报销填报</title>
+  <title>管理后台 · 报销工作台</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/styles.css?v=4.2.0">
-  <link rel="stylesheet" href="/assets/site-image.css?v=4.2.0">
-  <link rel="stylesheet" href="/assets/admin.css?v=4.2.0">
+  <link rel="stylesheet" href="/assets/styles.css?v=5.0.0">
+  <link rel="stylesheet" href="/assets/site-image.css?v=5.0.0">
+  <link rel="stylesheet" href="/assets/admin.css?v=5.0.0">
 </head>
 <body class="admin-body">
   <header class="topbar">
     <a class="brand" href="/">
       <span class="brand-mark">管</span>
-      <span><strong>发票服务管理后台</strong><small>规则 · 文案 · 图片</small></span>
+      <strong>报销工作台管理后台</strong>
     </a>
-    <div class="header-actions"><a href="/">返回用户页</a><button id="logout-button" class="text-button subtle" type="button" hidden>退出</button></div>
+    <div class="header-actions"><a href="/">报销首页</a><button id="logout-button" class="text-button subtle" type="button" hidden>退出</button></div>
   </header>
 
   <main class="admin-shell">
     <section id="login-panel" class="panel login-panel">
       <h1>登录管理后台</h1>
-      <p>登录后可编辑界面图片、报销规则和首页文案。</p>
+      <p>登录后可发布各页面的报销注意事项，管理报销规则和界面内容。</p>
       <form id="login-form" class="login-form">
         <label class="field"><span>账号</span><input id="admin-username" value="admin" autocomplete="username" required></label>
         <label class="field"><span>密码</span><input id="admin-password" type="password" autocomplete="current-password" required></label>
@@ -34,8 +34,20 @@
     <div id="admin-console" hidden>
       <div class="admin-heading">
         <h1>服务内容管理</h1>
-        <nav aria-label="后台设置导航"><a href="#images">界面图片</a><a href="#rules">报销规则</a><a href="#texts">界面文案</a></nav>
+        <nav aria-label="后台设置导航"><a href="#notices">报销注意事项</a><a href="#images">界面图片</a><a href="#rules">报销规则</a><a href="#texts">界面文案</a></nav>
       </div>
+
+      <section id="notices" class="panel" aria-labelledby="notices-heading">
+        <div class="section-heading"><h2 id="notices-heading">报销注意事项</h2></div>
+        <label class="field notice-page-choice"><span>显示页面</span>
+          <select id="notice-page">
+            <option value="home">报销首页</option>
+            <option value="invoice">发票报销</option>
+            <option value="travel">差旅报销</option>
+          </select>
+        </label>
+        <div id="notice-editors"></div>
+      </section>
 
       <section id="images" class="panel">
         <div class="section-heading"><h2>界面图片</h2><span class="muted">PNG / JPEG / WebP · 单张最多 5 MB</span></div>
@@ -50,13 +62,27 @@
       </section>
 
       <section id="texts" class="panel">
-        <div class="section-heading"><h2>界面文案</h2><span class="muted">修改用户首页显示的文字</span></div>
+        <div class="section-heading"><h2>界面文案</h2><span class="muted">修改发票报销页面显示的文字</span></div>
         <div id="site-text-fields" class="site-text-grid"></div>
         <div class="admin-actions"><button id="save-site-texts" class="button primary" type="button"><span>保存界面文案</span></button></div>
       </section>
 
     </div>
   </main>
+  <template id="notice-editor-template">
+    <form class="notice-editor">
+      <div class="notice-fields">
+        <label class="field"><span>标题</span><input name="title" maxlength="80" required></label>
+        <label class="field"><span>正文</span><textarea name="body" rows="6" maxlength="6000" required></textarea><small>可换行，段落间可留空行。</small></label>
+      </div>
+      <aside class="notice-sample" aria-label="注意事项内容预览">
+        <span>内容预览</span><h3></h3><p></p>
+      </aside>
+      <div class="notice-footer"><span role="status"></span>
+        <button type="submit" class="button primary">发布注意事项</button>
+      </div>
+    </form>
+  </template>
   <template id="image-editor-template">
     <fieldset class="image-card">
       <legend class="image-heading"></legend>
@@ -85,7 +111,7 @@
     </fieldset>
   </template>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/assets/site-image.js?v=4.2.0" defer></script>
-  <script src="/assets/admin.js?v=4.2.0" defer></script>
+  <script src="/assets/site-image.js?v=5.0.0" defer></script>
+  <script src="/assets/admin.js?v=5.0.0" defer></script>
 </body>
 </html>

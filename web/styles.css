@@ -244,6 +244,8 @@ tbody tr:last-child td { border-bottom: 0; }
   .topbar { height: 68px; padding: 0 16px; }
   .brand small { display: none; }
   .workspace .topbar, .workspace .header-actions { gap: 8px; }
+  .workspace .topbar { flex-wrap: wrap; }
+  .workspace .header-actions { flex-wrap: wrap; }
   .workspace .header-actions .admin-link { padding: 6px 8px; }
   .workspace .brand { gap: 8px; }
   .page-shell { width: calc(100% - 24px); padding-top: 16px; }

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="办理电子发票报销与差旅报销，查看填报注意事项。">
+  <title>报销服务中心</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/portal.css?v=5.0.0">
+  <link rel="stylesheet" href="/assets/site-image.css?v=5.0.0">
+  <link rel="stylesheet" href="/assets/notices.css?v=5.0.0">
+  <script src="/assets/notices.js?v=5.0.0" defer></script>
+  <script src="/assets/site-image.js?v=5.0.0" defer></script>
+  <script src="/assets/portal.js?v=5.0.0" defer></script>
+</head>
+<body class="portal" data-notice-page="home">
+  <header class="portal-header">
+    <div class="portal-bar">
+      <a class="portal-brand" href="/" aria-current="page">
+        <span id="portal-logo" class="portal-logo site-image-frame" data-slot="logo" aria-hidden="true"><span>票</span></span>
+        <strong>报销服务中心</strong>
+      </a>
+      <nav class="portal-nav" aria-label="网站导航">
+        <button type="button" data-open-notice>报销注意事项</button>
+        <a href="/admin">管理后台</a>
+      </nav>
+    </div>
+  </header>
+  <main class="portal-main">
+    <div class="portal-cover">
+      <div class="portal-intro">
+        <h1>选择报销业务</h1>
+        <p>整理日常费用发票，或按行程填报差旅费用。</p>
+      </div>
+      <div id="portal-cover-image" class="portal-photo site-image-frame" data-slot="hero" aria-hidden="true">
+        <img src="/assets/invoice-desk.webp" width="960" height="640" alt="">
+      </div>
+    </div>
+    <nav class="portal-options" aria-label="选择报销业务">
+      <a class="portal-option" href="/invoices/" aria-labelledby="invoice-option" aria-describedby="invoice-description">
+        <div class="portal-option-heading">
+          <h2 id="invoice-option">发票报销</h2>
+          <span class="portal-arrow" aria-hidden="true">→</span>
+        </div>
+        <p id="invoice-description">批量上传 PDF 或 ZIP，核对票面明细，生成报销表和打印材料。</p>
+      </a>
+      <a class="portal-option portal-travel" href="/travel/" aria-labelledby="travel-option" aria-describedby="travel-description">
+        <div class="portal-option-heading">
+          <h2 id="travel-option">差旅报销</h2>
+          <span class="portal-arrow" aria-hidden="true">→</span>
+        </div>
+        <p id="travel-description">填写出差行程、交通住宿及领款信息，整理凭证，生成差旅报销表。</p>
+      </a>
+    </nav>
+  </main>
+  <footer class="portal-footer"><a href="/docs">开发者接口文档</a></footer>
+</body>
+</html>

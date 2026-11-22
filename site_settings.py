@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import os
 import sqlite3
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from PIL import Image, ImageOps, UnidentifiedImageError
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from reimbursement_rules import RULES_DB_PATH
 
@@ -33,6 +34,48 @@ SITE_TEXT_DEFAULTS: dict[str, str] = {
 }
 SITE_ASSET_SLOTS = {"logo", "hero"}
 ASSET_DIR = Path(os.getenv("SITE_ASSET_DIR", str(RULES_DB_PATH.parent / "site-assets")))
+
+
+NoticePage = Literal["home", "invoice", "travel"]
+
+
+class NoticeText(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    title: str = Field(min_length=1, max_length=80)
+    body: str = Field(min_length=1, max_length=6000)
+
+    @field_validator("title")
+    @classmethod
+    def single_line_title(cls, value: str) -> str:
+        if "\n" in value or "\r" in value:
+            raise ValueError("标题请写在一行内。")
+        return value
+
+    @field_validator("body")
+    @classmethod
+    def normalize_lines(cls, value: str) -> str:
+        return value.replace("\r\n", "\n").replace("\r", "\n")
+
+    def published(self) -> dict[str, str]:
+        revision = hashlib.sha256(self.model_dump_json().encode("utf-8")).hexdigest()
+        return {**self.model_dump(), "revision": revision}
+
+
+NOTICE_DEFAULTS: dict[NoticePage, NoticeText] = {
+    "home": NoticeText(title="选择适合本次报销的入口", body=(
+        "整理采购、快递等电子发票，请进入「发票报销」。填写出差行程、交通和住宿费用，请进入「差旅报销」。\n\n"
+        "开始前请备好本次票据和相关凭证，并核对报销人信息。"
+    )),
+    "invoice": NoticeText(title="发票报销注意事项", body=(
+        "可同时选择多个发票 PDF 或 ZIP。识别后请对照票面核对项目名称、规格型号、发票号码和价税合计。规格型号栏为空时留空。\n\n"
+        "需要补充说明的发票，请先填写实际用途再打印。完成报销后，点击「登记已报销」保存历史。"
+    )),
+    "travel": NoticeText(title="差旅报销注意事项", body=(
+        "请准备本次出差的交通、住宿发票和相关凭证，核对出差人、起止日期、行程及金额。\n\n"
+        "草稿和附件保存在当前浏览器。离开共用电脑前，请先下载需要的报销表和附件，再清除本机数据。"
+    )),
+}
 
 
 class ImageLayout(BaseModel):
@@ -82,6 +125,26 @@ def _read_settings(db_path: Path) -> dict[str, str]:
 def get_site_texts(db_path: Path = RULES_DB_PATH) -> dict[str, str]:
     settings = _read_settings(db_path)
     return {key: settings[key] for key in SITE_TEXT_DEFAULTS}
+
+
+def _notice_from_value(page: NoticePage, value: str | None) -> dict[str, str]:
+    notice = NoticeText.model_validate_json(value) if value is not None else NOTICE_DEFAULTS[page]
+    return notice.published()
+
+
+def get_notice(page: NoticePage, db_path: Path = RULES_DB_PATH) -> dict[str, str]:
+    with closing(_connect(db_path)) as connection:
+        row = connection.execute("SELECT value FROM site_settings WHERE key = ?", (f"notice.{page}",)).fetchone()
+    return _notice_from_value(page, row[0] if row else None)
+
+
+def save_notice(page: NoticePage, notice: NoticeText, db_path: Path = RULES_DB_PATH) -> dict[str, str]:
+    with closing(_connect(db_path)) as connection, connection:
+        connection.execute(
+            "INSERT OR REPLACE INTO site_settings (key, value, updated_at) VALUES (?, ?, ?)",
+            (f"notice.{page}", notice.model_dump_json(), datetime.now(timezone.utc).isoformat()),
+        )
+    return notice.published()
 
 
 def update_site_texts(values: dict[str, Any], db_path: Path = RULES_DB_PATH) -> dict[str, str]:
@@ -175,6 +238,7 @@ def delete_site_image(slot: str, asset_dir: Path = ASSET_DIR, db_path: Path = RU
 def site_payload(
     db_path: Path = RULES_DB_PATH,
     asset_dir: Path = ASSET_DIR,
+    *, include_notices: bool = False,
 ) -> dict[str, Any]:
     assets: dict[str, str | None] = {}
     settings = _read_settings(db_path)
@@ -188,4 +252,7 @@ def site_payload(
         saved = settings.get(f"image_layout.{slot}")
         layout = ImageLayout.model_validate_json(saved) if saved else DEFAULT_IMAGE_LAYOUT
         layouts[slot] = layout.model_dump()
-    return {"texts": {key: settings[key] for key in SITE_TEXT_DEFAULTS}, "assets": assets, "image_layouts": layouts}
+    payload = {"texts": {key: settings[key] for key in SITE_TEXT_DEFAULTS}, "assets": assets, "image_layouts": layouts}
+    if include_notices:
+        payload["notices"] = {page: _notice_from_value(page, settings.get(f"notice.{page}")) for page in NOTICE_DEFAULTS}
+    return payload

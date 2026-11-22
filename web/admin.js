@@ -6,6 +6,8 @@ const logoutButton = document.querySelector("#logout-button");
 const ruleList = document.querySelector("#rule-list");
 const siteTextFields = document.querySelector("#site-text-fields");
 const imageManager = document.querySelector("#image-manager");
+const noticePage = document.querySelector("#notice-page");
+const noticeEditors = document.querySelector("#notice-editors");
 const toast = document.querySelector("#toast");
 
 const credentialKey = "invoice-admin-basic-v1";
@@ -170,6 +172,78 @@ function renderTexts(site) {
     label.append(title, input);
     siteTextFields.append(label);
   });
+}
+
+function selectNoticeEditor() {
+  for (const form of noticeEditors.children) form.hidden = form.dataset.page !== noticePage.value;
+}
+noticePage.addEventListener("change", selectNoticeEditor);
+
+function renderNotices(notices) {
+  noticeEditors.replaceChildren();
+  noticePage.disabled = !notices;
+  if (!notices) {
+    noticeEditors.textContent = "此服务版本尚未提供注意事项设置。请从新版报销首页打开管理后台。";
+    return;
+  }
+  for (const option of noticePage.options) {
+    const page = option.value;
+    let published = notices[page];
+    const form = document.querySelector("#notice-editor-template").content.firstElementChild.cloneNode(true);
+    form.dataset.page = page;
+    const title = form.elements.namedItem("title");
+    const body = form.elements.namedItem("body");
+    const button = form.querySelector("button");
+    const status = form.querySelector("[role=status]");
+    const previewTitle = form.querySelector("h3");
+    const previewBody = form.querySelector(".notice-sample p");
+    title.value = published.title;
+    body.value = published.body;
+
+    function refresh() {
+      previewTitle.textContent = title.value;
+      previewBody.textContent = body.value;
+      const changed = title.value.trim() !== published.title || body.value.trim() !== published.body;
+      button.disabled = !changed;
+      status.textContent = changed ? "有未发布的修改" : "";
+    }
+    form.addEventListener("input", event => {
+      event.target.setCustomValidity("");
+      refresh();
+    });
+    form.addEventListener("submit", async event => {
+      event.preventDefault();
+      for (const field of [title, body]) {
+        if (!field.value.trim()) {
+          field.setCustomValidity("请填写内容。");
+          field.reportValidity();
+          return;
+        }
+      }
+      button.disabled = title.readOnly = body.readOnly = true;
+      button.textContent = "正在发布…";
+      try {
+        const response = await adminFetch(`/v1/admin/notices/${page}`, {
+          method: "PUT", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ title: title.value.trim(), body: body.value.trim() }),
+        });
+        published = await response.json();
+        title.value = published.title;
+        body.value = published.body;
+        refresh();
+        status.textContent = option.textContent + "的注意事项已发布。";
+      } catch (error) {
+        button.disabled = false;
+        status.textContent = error.message;
+      } finally {
+        title.readOnly = body.readOnly = false;
+        button.textContent = "发布注意事项";
+      }
+    });
+    refresh();
+    noticeEditors.append(form);
+  }
+  selectNoticeEditor();
 }
 
 function createImageEditor(slot, title, site) {
@@ -340,11 +414,14 @@ async function loadConsole() {
   renderRules(await rulesResponse.json());
   const site = await siteResponse.json();
   renderTexts(site);
+  renderNotices(site.notices);
   imageManager.replaceChildren(createImageEditor("logo", "站点 Logo", site), createImageEditor("hero", "首页展示图", site));
   loginPanel.hidden = true;
   adminConsole.hidden = false;
   logoutButton.hidden = false;
-  if (location.hash === "#images") document.getElementById("images").scrollIntoView();
+  if (["#notices", "#images", "#rules", "#texts"].includes(location.hash)) {
+    document.getElementById(location.hash.slice(1)).scrollIntoView();
+  }
 }
 
 loginForm.addEventListener("submit", async event => {
@@ -370,6 +447,7 @@ logoutButton.addEventListener("click", () => {
   sessionStorage.removeItem(credentialKey);
   imageManager.querySelectorAll(".image-card").forEach(card => card.dispatchEvent(new Event("dispose")));
   imageManager.replaceChildren();
+  noticeEditors.replaceChildren();
   adminConsole.hidden = true;
   loginPanel.hidden = false;
   logoutButton.hidden = true;

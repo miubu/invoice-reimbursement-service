@@ -6,12 +6,14 @@
   <meta name="description" content="上传电子发票 PDF 或 ZIP，核对票面字段并生成报销 Excel。">
   <title>电子发票报销填报</title>
   <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/assets/styles.css?v=4.2.0">
-  <link rel="stylesheet" href="/assets/site-image.css?v=4.2.0">
+  <link rel="stylesheet" href="/assets/styles.css?v=5.0.0">
+  <link rel="stylesheet" href="/assets/site-image.css?v=5.0.0">
+  <link rel="stylesheet" href="/assets/notices.css?v=5.0.0">
+  <script src="/assets/notices.js?v=5.0.0" defer></script>
 </head>
-<body class="workspace">
+<body class="workspace" data-notice-page="invoice">
   <header class="topbar">
-    <a class="brand" href="/">
+    <a class="brand" href="/invoices/">
       <span id="site-logo" data-slot="logo" class="site-image-frame brand-mark" aria-hidden="true"><b>票</b></span>
       <span>
         <strong id="site-name">电子发票报销填报</strong>
@@ -19,7 +21,9 @@
       </span>
     </a>
     <nav class="header-actions" aria-label="网站导航">
-      <a href="/docs" target="_blank" rel="noreferrer">接口文档</a>
+      <a href="/">报销首页</a>
+      <a href="/travel/">差旅报销</a>
+      <button type="button" class="text-button subtle" data-open-notice>报销注意事项</button>
       <a class="admin-link" href="/admin">管理后台</a>
     </nav>
   </header>
@@ -194,7 +198,7 @@
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
   <dialog id="invoice-dialog" aria-label="发票票面"><form method="dialog"><button class="text-button">关闭</button></form><img id="invoice-image" alt="原始发票票面"></dialog>
-  <script src="/assets/site-image.js?v=4.2.0" defer></script>
-  <script src="/assets/app.js?v=4.2.0" defer></script>
+  <script src="/assets/site-image.js?v=5.0.0" defer></script>
+  <script src="/assets/app.js?v=5.0.0" defer></script>
 </body>
 </html>
