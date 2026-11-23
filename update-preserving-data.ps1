@@ -1,10 +1,14 @@
 ﻿[CmdletBinding()]
 param(
     [string]$ContainerName,
-    [string]$BackupDirectory = (Join-Path $PSScriptRoot 'backups')
+    [string]$BackupDirectory
 )
 
 $ErrorActionPreference = 'Stop'
+# Windows PowerShell 5.1 在绑定脚本参数后才能可靠读取 $PSScriptRoot。
+if ([string]::IsNullOrEmpty($BackupDirectory)) {
+    $BackupDirectory = Join-Path $PSScriptRoot 'backups'
+}
 $service = 'invoice-service'
 $image = 'ghcr.io/miubu/invoice-reimbursement-service:latest'
 
