@@ -139,7 +139,7 @@ class JobLimiter:
 limiter = JobLimiter(MAX_CONCURRENT_JOBS, MAX_QUEUED_JOBS, QUEUE_TIMEOUT_SECONDS)
 app = FastAPI(
     title="报销工作台",
-    version="5.0.0",
+    version="5.0.1",
     description="上传一个或多个电子发票 PDF/ZIP，预览票面原文字段、下载 Excel，或合并发票和说明文件后一键打印。金额合计不再核销。",
 )
 app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")

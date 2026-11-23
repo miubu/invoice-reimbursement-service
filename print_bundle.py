@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from pypdf import PageObject, PdfReader, PdfWriter, Transformation
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.cidfonts import UnicodeCIDFont
 from reportlab.pdfgen import canvas
@@ -63,7 +63,7 @@ def _append_pdf(writer: PdfWriter, path: Path, label: str) -> None:
         writer.add_page(page)
 
 
-def _append_invoices_two_up(
+def _append_invoice_pages(
     writer: PdfWriter,
     paths: list[Path],
     included_page_indexes: list[int],
@@ -94,28 +94,20 @@ def _append_invoices_two_up(
     if not selected or not selected.issubset(range(page_index)) or len(pages) != len(included_page_indexes):
         raise ValueError("打印页码与识别结果不一致，请重新预览。")
 
-    a4_width, a4_height = 595.28, 841.89
-    margin, gap = 18.0, 10.0
-    slot_height = (a4_height - gap) / 2
-    for start in range(0, len(pages), 2):
+    margin = 18.0
+    for source_page in pages:
+        crop = source_page.cropbox
+        source_width, source_height = float(crop.width), float(crop.height)
+        if source_width <= 0 or source_height <= 0:
+            raise ValueError("发票页面的可打印区域为空，请检查 PDF。")
+        a4_width, a4_height = landscape(A4) if source_width > source_height else A4
+        scale = min((a4_width - 2 * margin) / source_width, (a4_height - 2 * margin) / source_height)
+        transform = Transformation().translate(-float(crop.left), -float(crop.bottom)).scale(scale).translate(
+            (a4_width - source_width * scale) / 2,
+            (a4_height - source_height * scale) / 2,
+        )
         output_page = PageObject.create_blank_page(width=a4_width, height=a4_height)
-        for slot, source_page in enumerate(pages[start:start + 2]):
-            source_width = float(source_page.cropbox.width)
-            source_height = float(source_page.cropbox.height)
-            scale = min(
-                (a4_width - 2 * margin) / source_width,
-                (slot_height - 2 * margin) / source_height,
-            )
-            scaled_width = source_width * scale
-            scaled_height = source_height * scale
-            slot_bottom = slot_height + gap if slot == 0 else 0
-            transform = Transformation().translate(
-                -float(source_page.cropbox.left), -float(source_page.cropbox.bottom),
-            ).scale(scale).translate(
-                (a4_width - scaled_width) / 2,
-                slot_bottom + (slot_height - scaled_height) / 2,
-            )
-            output_page.merge_transformed_page(source_page, transform)
+        output_page.merge_transformed_page(source_page, transform)
         writer.add_page(output_page)
 
 
@@ -238,7 +230,7 @@ def build_print_pdf(
         selected = included_page_indexes
         if selected is None:
             selected = list(range(sum(len(PdfReader(str(path), strict=False).pages) for path in invoice_pdfs)))
-        _append_invoices_two_up(writer, invoice_pdfs, selected)
+        _append_invoice_pages(writer, invoice_pdfs, selected)
 
     _append_explanations(writer, explanations or [])
     for attachment, label in attachments:

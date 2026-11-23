@@ -29,12 +29,12 @@ window.Attachments=(()=>{
     canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);canvas.setAttribute('aria-label',`第 ${i} 页`);
     await page.render({canvasContext:canvas.getContext('2d'),viewport}).promise;article.className='page';article.append(canvas);preview.append(article);page.cleanup();status.textContent=`已准备 ${i}/${pdf.numPages} 页`;
    }
-   status.textContent=`共 ${pdf.numPages} 页 · 每页两张`;button.disabled=false;
+   status.textContent=`共 ${pdf.numPages} 页 · 发票每页一张，凭证每页两张`;button.disabled=false;
   }finally{await pdf.destroy();}
  }
  async function run(action,win){
   await ready;if(working||invoiceBusy){win?.close();notice('附件仍在处理，请稍候再下载或打印');return;}
-  working=true;notice(action==='zip'?'正在生成原始附件 ZIP…':'正在生成每页两张的打印 PDF…');render();
+  working=true;notice(action==='zip'?'正在生成原始附件 ZIP…':'正在生成打印 PDF…');render();
   try{
    const records=list();if(!records.length)throw new Error('请先添加发票或凭证');
    if(action==='zip'){
@@ -42,8 +42,8 @@ window.Attachments=(()=>{
     saveBlob(await zip.generateAsync({type:'blob',compression:'STORE'}),filename('原始附件.zip'),`已生成 ${records.length} 个原始附件的 ZIP。`);
    }else{
     const result=await PrintBundle.buildPdf(records,notice),name=filename('发票及凭证打印.pdf');
-    if(action==='print'){await previewAndPrint(result.bytes,win,name,result.pageCount);notice(`已打开打印预览，${result.itemCount} 张票据/凭证，共 ${result.pageCount} 页，每页两张。`);}
-    else saveBlob(new Blob([result.bytes],{type:'application/pdf'}),name,`已生成打印 PDF：${result.itemCount} 张票据/凭证，共 ${result.pageCount} 页，每页两张。`);
+    if(action==='print'){await previewAndPrint(result.bytes,win,name,result.pageCount);notice(`已打开打印预览，${result.itemCount} 张票据/凭证，共 ${result.pageCount} 页。`);}
+    else saveBlob(new Blob([result.bytes],{type:'application/pdf'}),name,`已生成打印 PDF：${result.itemCount} 张票据/凭证，共 ${result.pageCount} 页。`);
    }
   }catch(error){notice(error.message);if(win?.isConnected){win.close();}}
   finally{working=false;render();}

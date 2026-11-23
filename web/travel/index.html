@@ -15,8 +15,8 @@
   <script defer src="report.js?v=5.0.0"></script>
   <script defer src="vendor/pdf-lib.min.js"></script>
   <script defer src="vendor/jszip.min.js"></script>
-  <script defer src="print-bundle.js?v=5.0.0"></script>
-  <script defer src="attachments.js?v=5.0.0"></script>
+  <script defer src="print-bundle.js?v=5.0.1"></script>
+  <script defer src="attachments.js?v=5.0.1"></script>
   <script defer src="invoice-inputs.js?v=5.0.0"></script>
   <script defer src="app.js?v=5.0.0"></script>
 </head>
@@ -35,7 +35,7 @@
   <p>导入票据，填写行程和收款信息，即可导出报销表，并打印发票及凭证。</p>
 </div>
 <section class="upload-section" aria-labelledby="upload-title"><div class="section-head"><span class="number">▤</span><h2 id="upload-title">拖入发票，自动填写费用</h2><span class="section-note">本机识别 · 不上传文件</span></div><div id="dropzone" tabindex="0" role="button" aria-label="选择或拖入发票"><strong>将酒店、机票等发票拖到这里</strong><span>或点击选择 ZIP、PDF、JPG、PNG、WebP，可一次选择多个文件</span><small>ZIP 自动解压，多页 PDF 自动逐页识别和计数，无需手动拆分。识别结果请核对。</small><input id="invoice-files" type="file" accept=".zip,.pdf,.jpg,.jpeg,.png,.webp" multiple hidden></div><p id="ocr-status" role="status" aria-live="polite"></p><div class="table-footer"><button id="reidentify-invoices" type="button" class="add" disabled>重新识别已上传发票</button><span>会更新类别、金额、日期和住宿天数，请核对结果。</span></div></section>
-<section class="upload-section" aria-labelledby="attachments-title"><div class="section-head"><span class="number">▤</span><h2 id="attachments-title">凭证与附件</h2><span class="section-note" id="attachment-count">发票 0 个 · 凭证 0 个</span></div><div id="proof-dropzone" class="proof-dropzone" role="button" tabindex="0" aria-label="选择或拖入凭证"><strong>上传凭证</strong><span>拖入图片或 PDF，或点击选择文件</span><small>凭证不会计入费用。每个文件最多 20MB，附件合计最多 200MB。</small><input id="proof-files" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" multiple hidden></div><p id="attachment-empty">添加发票或凭证后，可在这里下载并打印全部附件。</p><ul id="attachment-list" class="attachment-list"></ul><div class="attachment-actions"><button id="download-originals" type="button" class="add" disabled>下载原始附件 ZIP</button><button id="download-print-pdf" type="button" class="add" disabled>下载合并打印 PDF</button><button id="print-attachments" type="button" class="print-button" disabled>预览并打印全部</button></div><p class="attachment-help">原文件按“发票／凭证”打包；打印 PDF 按 A4 每页两张排版，包含每个文件的全部页面，仅打印票据和凭证内容。附件保存在本机浏览器，刷新后可继续使用。</p><p id="attachment-status" role="status" aria-live="polite"></p></section>
+<section class="upload-section" aria-labelledby="attachments-title"><div class="section-head"><span class="number">▤</span><h2 id="attachments-title">凭证与附件</h2><span class="section-note" id="attachment-count">发票 0 个 · 凭证 0 个</span></div><div id="proof-dropzone" class="proof-dropzone" role="button" tabindex="0" aria-label="选择或拖入凭证"><strong>上传凭证</strong><span>拖入图片或 PDF，或点击选择文件</span><small>凭证不会计入费用。每个文件最多 20MB，附件合计最多 200MB。</small><input id="proof-files" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" multiple hidden></div><p id="attachment-empty">添加发票或凭证后，可在这里下载并打印全部附件。</p><ul id="attachment-list" class="attachment-list"></ul><div class="attachment-actions"><button id="download-originals" type="button" class="add" disabled>下载原始附件 ZIP</button><button id="download-print-pdf" type="button" class="add" disabled>下载合并打印 PDF</button><button id="print-attachments" type="button" class="print-button" disabled>预览并打印全部</button></div><p class="attachment-help">原文件按“发票／凭证”打包；发票每个原始页面单独占一张 A4，凭证另起页，按每页两张排版，仅打印票据和凭证内容。附件保存在本机浏览器，刷新后可继续使用。</p><p id="attachment-status" role="status" aria-live="polite"></p></section>
 <form id="report" novalidate>
 <div class="workspace"><div class="sections">
 <section aria-labelledby="trip-title"><div class="section-head"><span class="number">01</span><h2 id="trip-title">出差信息</h2><span class="section-note">日期包含出发及返回当天</span></div>

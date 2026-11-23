@@ -2,12 +2,17 @@
 (function(root){
  async function buildPdf(records,onProgress=()=>{}){
   if(!records.length)throw new Error('请先添加发票或凭证');
-  const output=await PDFLib.PDFDocument.create(),width=595.28,height=841.89,margin=18,gap=18,slotHeight=(height-2*margin-gap)/2;
-  let sheet,itemCount=0;
-  function place(item,rotation=0,image=false){
-   if(itemCount%2===0)sheet=output.addPage([width,height]);
+  const output=await PDFLib.PDFDocument.create(),width=595.28,height=841.89,margin=18,gap=18;
+  let unfinishedProofSheet=null,itemCount=0;
+  function place(item,kind,rotation=0,image=false){
+   const proof=kind==='proof';
+   const lowerSlot=proof && unfinishedProofSheet!==null;
+   const sheet=lowerSlot ? unfinishedProofSheet : output.addPage([width,height]);
+   const slotHeight=proof ? (height-2*margin-gap)/2 : height-2*margin;
+   const bottom=proof && !lowerSlot ? margin+slotHeight+gap : margin;
+   unfinishedProofSheet=proof && !lowerSlot ? sheet : null;
    const turn=((rotation%360)+360)%360,sideways=turn===90||turn===270,w=sideways?item.height:item.width,h=sideways?item.width:item.height;
-   const scale=Math.min((width-2*margin)/w,slotHeight/h),x=(width-w*scale)/2,bottom=height-margin-slotHeight-(itemCount%2)*(slotHeight+gap),y=bottom+(slotHeight-h*scale)/2;
+   const scale=Math.min((width-2*margin)/w,slotHeight/h),x=(width-w*scale)/2,y=bottom+(slotHeight-h*scale)/2;
    const options={x:x+(turn===180||turn===270?w*scale:0),y:y+(turn===90||turn===180?h*scale:0),width:item.width*scale,height:item.height*scale,rotate:PDFLib.degrees(-turn)};
    if(image)sheet.drawImage(item,options);else sheet.drawPage(item,options);
    itemCount++;
@@ -21,7 +26,7 @@
      for(const page of source.getPages()){
       if(!page.node.Contents())page.drawRectangle({x:0,y:0,width:0,height:0,opacity:0});
       const box=page.getCropBox(),embedded=await output.embedPage(page,{left:box.x,bottom:box.y,right:box.x+box.width,top:box.y+box.height});
-      place(embedded,page.getRotation().angle);
+      place(embedded,record.kind,page.getRotation().angle);
      }
     }else{
      const bitmap=await createImageBitmap(record.blob);
@@ -31,7 +36,7 @@
       try{
        const context=canvas.getContext('2d');context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(bitmap,0,0);
        const png=await new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('图片转换失败')),'image/png'));
-       place(await output.embedPng(await png.arrayBuffer()),0,true);
+       place(await output.embedPng(await png.arrayBuffer()),record.kind,0,true);
       }finally{canvas.width=canvas.height=0;}
      }finally{bitmap.close();}
     }

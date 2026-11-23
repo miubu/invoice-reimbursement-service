@@ -189,13 +189,17 @@ def main() -> None:
             assert "FIRST-INVOICE" in printable.pages[0].extract_text()
             assert "SECOND-INVOICE" not in printable.pages[0].extract_text()
             assert float(printable.pages[1].mediabox.height) > 840
-            # 两张发票同页，说明页始终保持独立 A4。
+            # 两张发票各占一页，随后是单独的说明页。
             other_edits = [edits[0], dict(edits[1], excluded=False)]
             both = post("/v1/invoices/print", dict(form, edits=json.dumps(other_edits)))
             assert both.status_code == 200, both.text
             combined = PdfReader(io.BytesIO(both.content))
-            assert len(combined.pages) == 2
-            assert "SECOND-INVOICE" in combined.pages[0].extract_text()
+            assert len(combined.pages) == 3
+            assert "FIRST-INVOICE" in combined.pages[0].extract_text()
+            assert "SECOND-INVOICE" not in combined.pages[0].extract_text()
+            assert "SECOND-INVOICE" in combined.pages[1].extract_text()
+            assert "FIRST-INVOICE" not in combined.pages[1].extract_text()
+            assert notes[0]["note"] in combined.pages[2].extract_text()
             registered = post("/v1/invoices/history/register")
             assert registered.status_code == 200, registered.text
             assert post("/v1/invoices/export").status_code == 422
@@ -218,7 +222,7 @@ def main() -> None:
             registrations = list(pool.map(lambda _: save_history([record], "检查用户", "CHECK-ONLY", "CHECK-PHONE"), range(5)))
         assert sum(not duplicates for duplicates in registrations) == 1
 
-        print("PASS: manual edits, exclusions, Excel, two-up printing, full-page notes, history and concurrent duplicates, preserved settings")
+        print("PASS: manual edits, exclusions, Excel, one invoice per page, full-page notes, history and concurrent duplicates, preserved settings")
 
 
 if __name__ == "__main__":
