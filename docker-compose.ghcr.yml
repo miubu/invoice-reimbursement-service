@@ -29,3 +29,4 @@ services:
 
 volumes:
   invoice-data:
+    name: ${INVOICE_DATA_VOLUME:-${COMPOSE_PROJECT_NAME}_invoice-data}

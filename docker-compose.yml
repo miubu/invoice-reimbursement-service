@@ -2,7 +2,7 @@ services:
   invoice-service:
     build:
       context: .
-    image: invoice-reimbursement-service:5.0.1
+    image: ${INVOICE_SERVICE_IMAGE:-invoice-reimbursement-service:5.0.2}
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -30,3 +30,4 @@ services:
 
 volumes:
   invoice-data:
+    name: ${INVOICE_DATA_VOLUME:-${COMPOSE_PROJECT_NAME}_invoice-data}

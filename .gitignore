@@ -13,4 +13,5 @@ tmp/
 *.db-wal
 *.db-shm
 data/
+backups/
 *.zip

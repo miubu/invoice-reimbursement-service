@@ -1,6 +1,6 @@
 (() => {
   const scope = document.body.dataset.noticePage;
-  const pages = {home: "报销首页", invoice: "发票报销", travel: "差旅报销"};
+  const pages = {home: "报销首页", invoice: "日常报销", travel: "差旅报销"};
   if (!pages[scope]) return;
 
   const dialog = document.createElement("dialog");

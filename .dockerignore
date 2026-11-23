@@ -9,6 +9,7 @@ preview
 output
 tmp
 data
+backups
 tests
 *.xlsx
 !web/travel/template.xlsx

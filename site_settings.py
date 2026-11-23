@@ -17,7 +17,7 @@ from reimbursement_rules import RULES_DB_PATH
 
 
 SITE_TEXT_DEFAULTS: dict[str, str] = {
-    "site_name": "电子发票报销填报",
+    "site_name": "日常报销",
     "site_tagline": "电子发票识别与报销",
     "hero_kicker": "INVOICE WORKSPACE",
     "hero_title": "把发票放进来，核对后下载 Excel",
@@ -64,10 +64,10 @@ class NoticeText(BaseModel):
 
 NOTICE_DEFAULTS: dict[NoticePage, NoticeText] = {
     "home": NoticeText(title="选择适合本次报销的入口", body=(
-        "整理采购、快递等电子发票，请进入「发票报销」。填写出差行程、交通和住宿费用，请进入「差旅报销」。\n\n"
+        "整理采购、快递等电子发票，请进入「日常报销」。填写出差行程、交通和住宿费用，请进入「差旅报销」。\n\n"
         "开始前请备好本次票据和相关凭证，并核对报销人信息。"
     )),
-    "invoice": NoticeText(title="发票报销注意事项", body=(
+    "invoice": NoticeText(title="日常报销注意事项", body=(
         "可同时选择多个发票 PDF 或 ZIP。识别后请对照票面核对项目名称、规格型号、发票号码和价税合计。规格型号栏为空时留空。\n\n"
         "需要补充说明的发票，请先填写实际用途再打印。完成报销后，点击「登记已报销」保存历史。"
     )),
@@ -88,6 +88,34 @@ class ImageLayout(BaseModel):
 
 
 DEFAULT_IMAGE_LAYOUT = ImageLayout(fit="contain", zoom=100, x=50, y=50)
+DAILY_NAME_MIGRATION = "migration.daily_reimbursement_name"
+
+
+def _rename_daily_defaults(connection: sqlite3.Connection, now: str) -> None:
+    # 仅升级出厂文案。迁移标记与修改在同一事务中提交，管理员日后的编辑始终优先。
+    claimed = connection.execute(
+        "INSERT OR IGNORE INTO site_settings (key, value, updated_at) VALUES (?, '1', ?)",
+        (DAILY_NAME_MIGRATION, now),
+    )
+    if not claimed.rowcount:
+        return
+    connection.execute(
+        "UPDATE site_settings SET value = ? WHERE key = 'site_name' AND value = ?",
+        (SITE_TEXT_DEFAULTS["site_name"], "电子发票报销填报"),
+    )
+    old_home_body = (
+        "整理采购、快递等电子发票，请进入「发票报销」。填写出差行程、交通和住宿费用，请进入「差旅报销」。\n\n"
+        "开始前请备好本次票据和相关凭证，并核对报销人信息。"
+    )
+    for key, field, previous, updated in (
+        ("notice.home", "$.body", old_home_body, NOTICE_DEFAULTS["home"].body),
+        ("notice.invoice", "$.title", "发票报销注意事项", NOTICE_DEFAULTS["invoice"].title),
+    ):
+        connection.execute(
+            "UPDATE site_settings SET value = json_set(value, ?, ?) "
+            "WHERE key = ? AND json_extract(value, ?) = ?",
+            (field, updated, key, field, previous),
+        )
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -107,13 +135,15 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     )
     keys = {row[0] for row in connection.execute("SELECT key FROM site_settings")}
     missing = SITE_TEXT_DEFAULTS.keys() - keys
-    if missing:
+    if missing or DAILY_NAME_MIGRATION not in keys:
         now = datetime.now(timezone.utc).isoformat()
-        connection.executemany(
-            "INSERT OR IGNORE INTO site_settings (key, value, updated_at) VALUES (?, ?, ?)",
-            [(key, SITE_TEXT_DEFAULTS[key], now) for key in missing],
-        )
-        connection.commit()
+        with connection:
+            connection.executemany(
+                "INSERT OR IGNORE INTO site_settings (key, value, updated_at) VALUES (?, ?, ?)",
+                [(key, SITE_TEXT_DEFAULTS[key], now) for key in missing],
+            )
+            if DAILY_NAME_MIGRATION not in keys:
+                _rename_daily_defaults(connection, now)
     return connection
 
 
